@@ -93,6 +93,13 @@ The mouse places the caret, drags to select, and scrolls. There is no
 permanent F-key hint bar: it would be a second row of chrome you read
 once and then never again. `Shift-F1` and the menu both cover it.
 
+## The cursor
+
+A thin underline on the bottom scanlines of the cell — the VGA hardware
+cursor, not a character drawn over your text. It holds perfectly steady
+while you type and for a second after you stop, then blinks at about
+1.2Hz. Nothing on screen moves while you are writing.
+
 ## Files
 
 Plain UTF-8 `.txt`, anywhere on disk. No proprietary format, no library

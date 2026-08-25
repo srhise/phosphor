@@ -37,9 +37,9 @@ use vga::{FB_HEIGHT, FB_WIDTH};
 /// shader applies has to be undone to map clicks back to cells.
 const DISPLAY_ASPECT: f64 = 4.0 / 3.0;
 
-/// The cursor blinks at 2Hz, which is also the only thing that wakes an
-/// otherwise idle window.
-const BLINK_MS: u64 = 250;
+/// How often an idle window wakes. The cursor's own blink policy lives
+/// in `app`; this only has to be finer than it so the phase stays true.
+const TICK_MS: u64 = 200;
 
 /// The window and everything the OS owns. All document state lives in
 /// `app::App`; this shell only translates events and draws.
@@ -405,9 +405,7 @@ impl Shell {
 
     fn redraw(&mut self) {
         let elapsed = self.now_ms();
-        // 2Hz: on for 250ms, off for 250ms.
-        let blink_on = (elapsed / BLINK_MS).is_multiple_of(2);
-        self.state.paint_at(blink_on, elapsed);
+        self.state.paint_at(elapsed);
 
         let (Some(pixels), Some(present), Some(window)) = (
             self.pixels.as_mut(),
@@ -587,7 +585,7 @@ impl ApplicationHandler for Shell {
         // Wake only often enough to blink the cursor: an idle window
         // costs essentially nothing.
         event_loop.set_control_flow(ControlFlow::WaitUntil(
-            Instant::now() + Duration::from_millis(BLINK_MS),
+            Instant::now() + Duration::from_millis(TICK_MS),
         ));
         self.maybe_backup();
         self.request_redraw();

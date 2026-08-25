@@ -107,7 +107,7 @@ fn random_command_sequences_never_panic() {
                 _ => app.apply(random_command(&mut rng), now),
             }
             // Painting is what the window does on every event.
-            app.paint_at(step % 2 == 0, now);
+            app.paint_at(now);
         }
     }
 }
@@ -120,7 +120,7 @@ fn random_sequences_never_panic_in_dense_mode() {
         app.set_dense(true);
         for step in 0..120u64 {
             app.apply(random_command(&mut rng), step * 37);
-            app.paint_at(true, step * 37);
+            app.paint_at(step * 37);
         }
     }
 }

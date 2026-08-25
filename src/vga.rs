@@ -32,6 +32,16 @@ pub const PALETTE: [[u8; 3]; 16] = [
     [0xFF, 0xFF, 0xFF], // 15 white
 ];
 
+/// How many scanlines the underline cursor occupies in a cell of the
+/// given height. Two on the 8x16 face, one on the denser 8x8.
+fn cursor_scanlines(cell_height: usize) -> usize {
+    if cell_height >= 16 {
+        2
+    } else {
+        1
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
     Text80x25,
@@ -64,6 +74,10 @@ pub struct Cell {
 pub struct Screen {
     mode: Mode,
     cells: Vec<Cell>,
+    /// The text cursor, drawn as scanlines within its cell rather than as
+    /// a glyph -- which is how the VGA hardware cursor worked, and why it
+    /// can underline a character without replacing it.
+    cursor: Option<(usize, usize)>,
 }
 
 impl Screen {
@@ -76,7 +90,18 @@ impl Screen {
         Self {
             mode,
             cells: vec![blank; 80 * mode.rows()],
+            cursor: None,
         }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn cursor(&self) -> Option<(usize, usize)> {
+        self.cursor
+    }
+
+    /// Place the underline cursor, or `None` to hide it.
+    pub fn set_cursor(&mut self, at: Option<(usize, usize)>) {
+        self.cursor = at;
     }
 
     pub fn mode(&self) -> Mode {
@@ -172,9 +197,14 @@ impl Screen {
                     let bg = PALETTE[(cell.bg & 0x0F) as usize];
                     let fb_x = col * font::CELL_WIDTH;
 
+                    // The cursor occupies the bottom scanlines of its
+                    // cell, lighting them whatever the glyph does.
+                    let on_cursor =
+                        self.cursor == Some((col, row)) && y + cursor_scanlines(cell_h) >= cell_h;
+
                     for x in 0..font::CELL_WIDTH {
                         // bit 8 is the leftmost pixel.
-                        let lit = (bits >> (font::CELL_WIDTH - 1 - x)) & 1 == 1;
+                        let lit = on_cursor || (bits >> (font::CELL_WIDTH - 1 - x)) & 1 == 1;
                         let rgb = if lit { fg } else { bg };
                         let i = (fb_y * FB_WIDTH + fb_x + x) * 4;
                         out[i] = rgb[0];
@@ -412,5 +442,77 @@ pub(crate) mod preview {
         s.render(&mut fb);
         write_bmp("target/preview.bmp", &fb);
         println!("wrote target/preview.bmp");
+    }
+
+    #[test]
+    fn no_cursor_by_default() {
+        let s = Screen::new(Mode::Text80x25);
+        assert_eq!(s.cursor(), None);
+    }
+
+    #[test]
+    fn the_cursor_lights_the_bottom_two_scanlines_of_its_cell() {
+        let mut s = Screen::new(Mode::Text80x25);
+        s.clear(7, 1);
+        s.set(0, 0, b' ', 15, 1);
+        s.set_cursor(Some((0, 0)));
+        let mut fb = vec![0u8; FB_WIDTH * FB_HEIGHT * 4];
+        s.render(&mut fb);
+
+        let px = |x: usize, y: usize| {
+            let i = (y * FB_WIDTH + x) * 4;
+            [fb[i], fb[i + 1], fb[i + 2]]
+        };
+        for x in 0..font::CELL_WIDTH {
+            assert_eq!(px(x, 14), PALETTE[15], "row 14 of the cursor cell");
+            assert_eq!(px(x, 15), PALETTE[15], "row 15 of the cursor cell");
+            assert_eq!(px(x, 13), PALETTE[1], "row 13 stays background");
+            assert_eq!(px(x, 0), PALETTE[1], "the top of the cell is clear");
+        }
+    }
+
+    #[test]
+    fn the_cursor_underlines_a_character_without_replacing_it() {
+        let mut s = Screen::new(Mode::Text80x25);
+        s.clear(7, 1);
+        s.set(0, 0, b'A', 15, 1);
+        s.set_cursor(Some((0, 0)));
+        let mut fb = vec![0u8; FB_WIDTH * FB_HEIGHT * 4];
+        s.render(&mut fb);
+        // Row 2 of 'A' still has its single lit pixel at column 3.
+        let px = |x: usize, y: usize| {
+            let i = (y * FB_WIDTH + x) * 4;
+            [fb[i], fb[i + 1], fb[i + 2]]
+        };
+        assert_eq!(px(3, 2), PALETTE[15], "the glyph survives");
+        assert_eq!(px(2, 2), PALETTE[1]);
+        assert_eq!(px(0, 15), PALETTE[15], "and it is underlined");
+    }
+
+    #[test]
+    fn only_the_cursor_cell_is_underlined() {
+        let mut s = Screen::new(Mode::Text80x25);
+        s.clear(7, 1);
+        s.set_cursor(Some((0, 0)));
+        let mut fb = vec![0u8; FB_WIDTH * FB_HEIGHT * 4];
+        s.render(&mut fb);
+        let i = (15 * FB_WIDTH + font::CELL_WIDTH) * 4;
+        assert_eq!(&fb[i..i + 3], &PALETTE[1][..], "the next cell is untouched");
+    }
+
+    #[test]
+    fn the_dense_face_uses_a_single_scanline() {
+        assert_eq!(cursor_scanlines(16), 2);
+        assert_eq!(cursor_scanlines(8), 1);
+    }
+
+    #[test]
+    fn a_cursor_outside_the_grid_is_simply_not_drawn() {
+        let mut s = Screen::new(Mode::Text80x25);
+        s.clear(7, 1);
+        s.set_cursor(Some((999, 999)));
+        let mut fb = vec![0u8; FB_WIDTH * FB_HEIGHT * 4];
+        s.render(&mut fb); // must not panic
+        assert_eq!(&fb[0..3], &PALETTE[1][..]);
     }
 }

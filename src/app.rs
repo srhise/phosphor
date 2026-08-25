@@ -21,6 +21,13 @@ const STATUS_FG: u8 = 15;
 /// Columns of clearance at each end of the status line.
 const STATUS_MARGIN: usize = 2;
 
+/// The cursor holds steady this long after the last keystroke, so it
+/// never flickers while you are actually writing.
+const CURSOR_STEADY_MS: u64 = 1_000;
+/// Half-period of the idle blink: about 1.2Hz, slow enough to read as
+/// breathing rather than flashing.
+const CURSOR_BLINK_MS: u64 = 420;
+
 /// Shown by F1. The keys stay discoverable without a permanent hint bar
 /// eating a row of the writing surface forever.
 const HELP_TEXT: &str = "\
@@ -53,6 +60,8 @@ pub struct App {
     goal_col: Option<usize>,
     /// Last clock reading handed to `paint_at`.
     now_ms: u64,
+    /// When the user last did anything, for the blink hold-off.
+    last_input_ms: u64,
     /// The modal box, if one is open. While it is, keystrokes never
     /// reach the document.
     overlay: Overlay,
@@ -81,6 +90,7 @@ impl App {
             lines,
             goal_col: None,
             now_ms: 0,
+            last_input_ms: 0,
             overlay: Overlay::None,
             word_count_until: 0,
             submitted: None,
@@ -370,7 +380,17 @@ impl App {
         }
     }
 
+    /// Solid while typing; a slow blink once you pause.
+    pub fn cursor_visible(&self, now_ms: u64) -> bool {
+        let since = now_ms.saturating_sub(self.last_input_ms);
+        if since < CURSOR_STEADY_MS {
+            return true;
+        }
+        ((since - CURSOR_STEADY_MS) / CURSOR_BLINK_MS).is_multiple_of(2)
+    }
+
     pub fn apply(&mut self, cmd: Command, now_ms: u64) {
+        self.last_input_ms = now_ms;
         // Whatever holds focus consumes the key first.
         match &self.overlay {
             Overlay::Menu(_) => {
@@ -490,6 +510,7 @@ impl App {
     }
 
     pub fn click(&mut self, col: usize, row: usize, extend: bool) {
+        self.last_input_ms = self.now_ms;
         let offset = self.offset_at_cell(col, row);
         self.editor.set_cursor(offset, extend);
         self.goal_col = None;
@@ -506,13 +527,14 @@ impl App {
     /// Repaint the grid from application state. `blink_on` drives the
     /// cursor's 2Hz blink.
     #[cfg_attr(not(test), allow(dead_code))]
-    pub fn paint(&mut self, blink_on: bool) {
-        self.paint_at(blink_on, 0)
+    pub fn paint(&mut self) {
+        self.paint_at(0)
     }
 
-    /// `now_ms` drives the word-count readout's expiry.
-    pub fn paint_at(&mut self, blink_on: bool, now_ms: u64) {
+    /// `now_ms` drives the cursor blink and the word-count expiry.
+    pub fn paint_at(&mut self, now_ms: u64) {
         self.now_ms = now_ms;
+        let blink_on = self.cursor_visible(now_ms);
         self.screen.clear(FG, BG);
         let rows = self.text_rows();
         let text = self.editor.text();
@@ -526,6 +548,7 @@ impl App {
         }
 
         self.paint_selection();
+        self.screen.set_cursor(None);
         if blink_on && self.editor.selection().is_none() {
             self.paint_cursor();
         }
@@ -577,7 +600,7 @@ impl App {
         }
         let row = line - self.viewport_top;
         if row < self.text_rows() {
-            self.screen.invert(wrap::TEXT_LEFT + col, row);
+            self.screen.set_cursor(Some((wrap::TEXT_LEFT + col, row)));
         }
     }
 
@@ -966,7 +989,7 @@ mod tests {
     #[test]
     fn painting_puts_text_at_the_left_margin() {
         let mut a = app_with("hello");
-        a.paint(true);
+        a.paint();
         assert_eq!(a.screen().cell(wrap::TEXT_LEFT, 0).glyph, b'h');
         assert_eq!(
             a.screen().cell(wrap::TEXT_LEFT - 1, 0).glyph,
@@ -976,19 +999,121 @@ mod tests {
     }
 
     #[test]
-    fn painting_shows_the_cursor_as_inverse_video_when_blinking_on() {
+    fn painting_places_the_cursor_at_the_caret() {
         let mut a = app_with("hi");
-        a.paint(true);
-        let c = a.screen().cell(wrap::TEXT_LEFT, 0);
-        assert_eq!(c.bg, 7, "background and foreground are swapped");
-        a.paint(false);
-        assert_eq!(a.screen().cell(wrap::TEXT_LEFT, 0).bg, 1, "and back again");
+        a.apply(
+            Command::Move {
+                motion: Motion::Right,
+                extend: false,
+            },
+            T,
+        );
+        a.paint_at(T);
+        assert_eq!(a.screen().cursor(), Some((wrap::TEXT_LEFT + 1, 0)));
+    }
+
+    #[test]
+    fn the_cursor_hides_while_a_selection_is_active() {
+        let mut a = app_with("hello");
+        a.apply(Command::SelectAll, T);
+        a.paint_at(T);
+        assert_eq!(a.screen().cursor(), None, "the selection is the marker");
+    }
+
+    #[test]
+    fn the_cursor_holds_steady_while_typing() {
+        let mut a = App::new();
+        // Type across more than a blink period; it must never wink out.
+        for step in 0..6u64 {
+            a.apply(Command::Insert("a".to_string()), step * 200);
+            assert!(a.cursor_visible(step * 200), "blinked mid-keystroke");
+            assert!(
+                a.cursor_visible(step * 200 + 150),
+                "blinked between keystrokes"
+            );
+        }
+    }
+
+    #[test]
+    fn the_cursor_stays_lit_for_a_moment_after_you_stop() {
+        let mut a = App::new();
+        a.apply(Command::Insert("x".to_string()), 1_000);
+        assert!(
+            a.cursor_visible(1_000 + CURSOR_STEADY_MS - 1),
+            "still steady"
+        );
+    }
+
+    #[test]
+    fn the_cursor_blinks_once_you_pause() {
+        let mut a = App::new();
+        a.apply(Command::Insert("x".to_string()), 0);
+        let base = CURSOR_STEADY_MS;
+        assert!(a.cursor_visible(base), "on");
+        assert!(!a.cursor_visible(base + CURSOR_BLINK_MS), "off");
+        assert!(a.cursor_visible(base + CURSOR_BLINK_MS * 2), "on again");
+    }
+
+    #[test]
+    fn the_idle_blink_is_slow_enough_to_read_as_breathing() {
+        // Measure the real thing rather than the constant: sample the
+        // cursor once a millisecond and time one complete cycle.
+        let mut a = App::new();
+        a.apply(Command::Insert("x".to_string()), 0);
+
+        let start = CURSOR_STEADY_MS + 1;
+        let mut transitions = Vec::new();
+        let mut previous = a.cursor_visible(start);
+        for t in start..start + 5_000 {
+            let now = a.cursor_visible(t);
+            if now != previous {
+                transitions.push(t);
+                previous = now;
+            }
+            if transitions.len() == 3 {
+                break;
+            }
+        }
+        assert_eq!(transitions.len(), 3, "expected the cursor to blink at all");
+        let cycle = transitions[2] - transitions[0];
+        assert!(
+            cycle >= 700,
+            "a {cycle}ms cycle reads as flashing, not breathing"
+        );
+        assert!(
+            cycle <= 1_600,
+            "a {cycle}ms cycle is so slow it looks broken"
+        );
+    }
+
+    #[test]
+    fn moving_the_caret_also_holds_the_cursor_steady() {
+        let mut a = app_with("hello");
+        a.apply(
+            Command::Move {
+                motion: Motion::Right,
+                extend: false,
+            },
+            5_000,
+        );
+        assert!(
+            a.cursor_visible(5_000 + 100),
+            "arrowing about should not blink"
+        );
+    }
+
+    #[test]
+    fn clicking_holds_the_cursor_steady_too() {
+        let mut a = app_with("hello");
+        a.paint_at(9_000);
+        a.click(wrap::TEXT_LEFT + 2, 0, false);
+        assert!(a.cursor_visible(9_000 + 100));
     }
 
     #[test]
     fn painting_writes_the_status_line_on_the_last_row() {
         let mut a = app_with("hi");
-        a.paint(true);
+        a.paint();
         let row = a.screen().rows() - 1;
         let line: String = (0..80)
             .map(|c| cp437::decode(a.screen().cell(c, row).glyph))
@@ -1008,7 +1133,7 @@ mod tests {
             },
             T,
         );
-        a.paint(true);
+        a.paint();
         let row = a.screen().rows() - 1;
         let line: String = (0..80)
             .map(|c| cp437::decode(a.screen().cell(c, row).glyph))
@@ -1019,7 +1144,7 @@ mod tests {
     #[test]
     fn the_status_line_right_field_is_not_clipped() {
         let mut a = app_with("hi");
-        a.paint(true);
+        a.paint();
         let row = a.screen().rows() - 1;
         let line: String = (0..80)
             .map(|c| cp437::decode(a.screen().cell(c, row).glyph))
@@ -1145,7 +1270,7 @@ entering along with him."
             9_100,
         );
 
-        a.paint(true);
+        a.paint();
         let mut fb = vec![0u8; FB_WIDTH * FB_HEIGHT * 4];
         a.screen().render(&mut fb);
         crate::vga::preview::write_bmp("target/app-preview.bmp", &fb);
@@ -1220,7 +1345,7 @@ entering along with him."
             body: "File not found".to_string(),
             danger: true,
         });
-        a.paint(true);
+        a.paint();
         let has_corner =
             (0..a.screen().rows()).any(|r| (0..80).any(|c| a.screen().cell(c, r).glyph == 0xC9));
         assert!(has_corner, "expected a double-line top-left corner");
@@ -1239,7 +1364,7 @@ entering along with him."
     fn the_help_overlay_lists_the_keys() {
         let mut a = App::new();
         a.apply(Command::ToggleHelp, T);
-        a.paint(true);
+        a.paint();
         let all: String = (0..a.screen().rows())
             .flat_map(|r| (0..80).map(move |c| (c, r)))
             .map(|(c, r)| cp437::decode(a.screen().cell(c, r).glyph))
@@ -1251,7 +1376,7 @@ entering along with him."
     fn the_word_count_appears_in_the_status_line_then_expires() {
         let mut a = app_with("one two three");
         a.apply(Command::ShowWordCount, T);
-        a.paint_at(true, T);
+        a.paint_at(T);
         let row = a.screen().rows() - 1;
         let line: String = (0..80)
             .map(|c| cp437::decode(a.screen().cell(c, row).glyph))
@@ -1259,7 +1384,7 @@ entering along with him."
         assert!(line.contains("3 words"), "got: {line}");
 
         // Three seconds later the status line is back to normal.
-        a.paint_at(true, T + 3_001);
+        a.paint_at(T + 3_001);
         let line: String = (0..80)
             .map(|c| cp437::decode(a.screen().cell(c, row).glyph))
             .collect();
@@ -1329,7 +1454,7 @@ of it a coloured poster, too large for indoor display, had been tacked to \
 the wall.",
         );
         a.apply(Command::ToggleHelp, 0);
-        a.paint(true);
+        a.paint();
 
         let mut fb = vec![0u8; FB_WIDTH * FB_HEIGHT * 4];
         a.screen().render(&mut fb);
@@ -1480,7 +1605,7 @@ the wall.",
     fn painting_a_menu_draws_the_bar_across_the_top() {
         let mut a = App::new();
         key(&mut a, Command::MenuBar);
-        a.paint(true);
+        a.paint();
         let row: String = (0..80)
             .map(|c| cp437::decode(a.screen().cell(c, 0).glyph))
             .collect();
@@ -1500,7 +1625,7 @@ the wall.",
                 extend: false,
             },
         );
-        a.paint(true);
+        a.paint();
         let all: String = (0..a.screen().rows())
             .flat_map(|r| (0..80).map(move |c| (c, r)))
             .map(|(c, r)| cp437::decode(a.screen().cell(c, r).glyph))
@@ -1519,7 +1644,7 @@ the wall.",
             "Document to be created:",
             "ch1.txt",
         );
-        a.paint(true);
+        a.paint();
         let all: String = (0..a.screen().rows())
             .flat_map(|r| (0..80).map(move |c| (c, r)))
             .map(|(c, r)| cp437::decode(a.screen().cell(c, r).glyph))
@@ -1590,7 +1715,7 @@ the wall.",
     fn the_help_overlay_names_both_ways_into_the_menu() {
         let mut a = App::new();
         key(&mut a, Command::ToggleHelp);
-        a.paint(true);
+        a.paint();
         let all: String = (0..a.screen().rows())
             .flat_map(|r| (0..80).map(move |c| (c, r)))
             .map(|(c, r)| cp437::decode(a.screen().cell(c, r).glyph))

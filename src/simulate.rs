@@ -197,7 +197,7 @@ pub fn crop(src: &[u8], w: usize, x0: usize, y0: usize, cw: usize, ch: usize) ->
 fn scene() -> Vec<u8> {
     let mut a = App::new();
     a.load_text("It was a bright cold day in April, and the clocks were striking thirteen.");
-    a.paint(true);
+    a.paint();
     let mut fb = vec![0u8; FB_WIDTH * FB_HEIGHT * 4];
     a.screen().render(&mut fb);
     fb
@@ -215,8 +215,8 @@ fn simulate_window() {
         let full = present(&fb, w, h, effects, 0.0);
         let (small, sw, sh) = downsample2(&full, w, h);
         crate::vga::preview::write_bmp_rgba(&format!("target/sim-{name}.bmp"), &small, sw, sh);
-        // A 1:1 crop of the status line, where uneven strokes show worst.
-        let ch = crop(&full, w, 40, h - 130, 900, 110);
+        // A 1:1 crop of the first line, where the cursor sits.
+        let ch = crop(&full, w, 150, 10, 900, 110);
         crate::vga::preview::write_bmp_rgba(
             &format!("target/sim-{name}-status.bmp"),
             &ch,
@@ -260,7 +260,7 @@ fn simulate_menu() {
         let mut a = App::new();
         a.load_text("It was a bright cold day in April, and the clocks were striking thirteen.");
         setup(&mut a);
-        a.paint(true);
+        a.paint();
         let mut fb = vec![0u8; FB_WIDTH * FB_HEIGHT * 4];
         a.screen().render(&mut fb);
 
