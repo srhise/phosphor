@@ -71,11 +71,13 @@ mod tests {
 
     #[test]
     fn a_config_round_trips() {
-        let mut c = Config::default();
-        c.effects = false;
-        c.dense = true;
-        c.window = (1440, 1080);
-        c.recent = Some(PathBuf::from("/tmp/a.txt"));
+        let c = Config {
+            effects: false,
+            dense: true,
+            window: (1440, 1080),
+            recent: Some(PathBuf::from("/tmp/a.txt")),
+            ..Default::default()
+        };
         assert_eq!(parse(&render(&c)), c);
     }
 

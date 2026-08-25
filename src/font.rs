@@ -46,7 +46,11 @@ pub fn glyph_row(face: Face, glyph: u8, row: usize) -> u16 {
         return 0;
     }
     let bits = face.data()[glyph as usize * height + row];
-    let ninth = if BOX_DRAWING.contains(&glyph) { bits & 1 } else { 0 };
+    let ninth = if BOX_DRAWING.contains(&glyph) {
+        bits & 1
+    } else {
+        0
+    };
     (u16::from(bits) << 1) | u16::from(ninth)
 }
 
@@ -64,8 +68,8 @@ mod tests {
     fn capital_a_has_the_expected_bitmap() {
         // Rows 2..12 of glyph 0x41 in the IBM VGA 8x16 face.
         let expected: [u8; 10] = [
-            0b00010000, 0b00111000, 0b01101100, 0b11000110, 0b11000110,
-            0b11111110, 0b11000110, 0b11000110, 0b11000110, 0b11000110,
+            0b00010000, 0b00111000, 0b01101100, 0b11000110, 0b11000110, 0b11111110, 0b11000110,
+            0b11000110, 0b11000110, 0b11000110,
         ];
         for (i, want) in expected.iter().enumerate() {
             let got = glyph_row(Face::W8x16, b'A', i + 2);

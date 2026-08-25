@@ -50,14 +50,21 @@ pub fn load(path: &Path) -> io::Result<Loaded> {
     let raw = String::from_utf8_lossy(&bytes).into_owned();
     let crlf = raw.contains("\r\n");
     let normalized = raw.replace("\r\n", "\n").replace('\r', "\n");
-    Ok(Loaded { text: expand_tabs(&normalized, TAB_STOP), crlf })
+    Ok(Loaded {
+        text: expand_tabs(&normalized, TAB_STOP),
+        crlf,
+    })
 }
 
 /// Write atomically: a temporary file in the destination directory, then
 /// a rename over the target. A failed write never destroys the previous
 /// version.
 pub fn save(path: &Path, text: &str, crlf: bool) -> io::Result<()> {
-    let body = if crlf { text.replace('\n', "\r\n") } else { text.to_string() };
+    let body = if crlf {
+        text.replace('\n', "\r\n")
+    } else {
+        text.to_string()
+    };
 
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     let tmp = temp_sibling(path);

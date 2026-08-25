@@ -22,6 +22,7 @@ impl VisualLine {
         self.end - self.start
     }
 
+    #[allow(dead_code)] // paired with `len` to satisfy clippy
     pub fn is_empty(&self) -> bool {
         self.start == self.end
     }
@@ -47,7 +48,10 @@ pub fn wrap(text: &[char], width: usize) -> Vec<VisualLine> {
         let mut cursor = start;
         loop {
             if para_end - cursor <= width {
-                lines.push(VisualLine { start: cursor, end: para_end });
+                lines.push(VisualLine {
+                    start: cursor,
+                    end: para_end,
+                });
                 break;
             }
             let limit = cursor + width;
@@ -61,11 +65,17 @@ pub fn wrap(text: &[char], width: usize) -> Vec<VisualLine> {
 
             match break_at {
                 Some(sp) => {
-                    lines.push(VisualLine { start: cursor, end: sp });
+                    lines.push(VisualLine {
+                        start: cursor,
+                        end: sp,
+                    });
                     cursor = sp + 1; // consume the space
                 }
                 None => {
-                    lines.push(VisualLine { start: cursor, end: limit });
+                    lines.push(VisualLine {
+                        start: cursor,
+                        end: limit,
+                    });
                     cursor = limit;
                 }
             }
@@ -158,7 +168,10 @@ mod tests {
     fn the_space_at_a_wrap_point_is_consumed() {
         let cs = chars("aaa bbb ccc");
         let lines = wrap(&cs, 7);
-        assert_eq!(lines[1].start, 8, "line 2 starts after the space at index 7");
+        assert_eq!(
+            lines[1].start, 8,
+            "line 2 starts after the space at index 7"
+        );
     }
 
     #[test]
@@ -180,7 +193,11 @@ mod tests {
     fn position_of_start_and_end_of_a_single_line() {
         let lines = wrap(&chars("hello"), 10);
         assert_eq!(position_of(&lines, 0), (0, 0));
-        assert_eq!(position_of(&lines, 5), (0, 5), "cursor may sit past the last char");
+        assert_eq!(
+            position_of(&lines, 5),
+            (0, 5),
+            "cursor may sit past the last char"
+        );
     }
 
     #[test]
@@ -220,7 +237,11 @@ mod tests {
     fn offset_at_clamps_column_to_the_line_end() {
         let lines = wrap(&chars("ab\ncdef"), 10);
         assert_eq!(offset_at(&lines, 0, 99), 2, "column clamps to the line end");
-        assert_eq!(offset_at(&lines, 99, 0), 3, "line clamps to the last line's start");
+        assert_eq!(
+            offset_at(&lines, 99, 0),
+            3,
+            "line clamps to the last line's start"
+        );
         assert_eq!(offset_at(&lines, 99, 99), 7, "both clamp: the document end");
     }
 }

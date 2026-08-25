@@ -86,6 +86,7 @@ impl App {
         &self.screen
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn viewport_top(&self) -> usize {
         self.viewport_top
     }
@@ -210,7 +211,11 @@ impl App {
     }
 
     pub fn set_dense(&mut self, dense: bool) {
-        let mode = if dense { Mode::Text80x50 } else { Mode::Text80x25 };
+        let mode = if dense {
+            Mode::Text80x50
+        } else {
+            Mode::Text80x25
+        };
         self.screen.set_mode(mode);
         self.scroll_to_cursor();
     }
@@ -229,7 +234,10 @@ impl App {
     }
 
     pub fn confirm(&mut self, prompt: Prompt, body: &str) {
-        self.overlay = Overlay::Confirm { prompt, body: body.to_string() };
+        self.overlay = Overlay::Confirm {
+            prompt,
+            body: body.to_string(),
+        };
     }
 
     /// Answer the open confirmation. The caller performs the resulting
@@ -361,6 +369,7 @@ impl App {
 
     /// Repaint the grid from application state. `blink_on` drives the
     /// cursor's 2Hz blink.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn paint(&mut self, blink_on: bool) {
         self.paint_at(blink_on, 0)
     }
@@ -504,50 +513,132 @@ mod tests {
         assert_eq!(a.editor().to_string(), "        ");
         a.apply(Command::Insert("x".to_string()), T);
         a.apply(Command::Tab, T);
-        assert_eq!(a.editor().to_string().len(), 16, "next stop, not another eight");
+        assert_eq!(
+            a.editor().to_string().len(),
+            16,
+            "next stop, not another eight"
+        );
     }
 
     #[test]
     fn moving_down_a_line_keeps_the_column() {
         let mut a = app_with("abcdef\nghijkl");
-        a.apply(Command::Move { motion: Motion::Right, extend: false }, T);
-        a.apply(Command::Move { motion: Motion::Right, extend: false }, T);
-        a.apply(Command::Move { motion: Motion::Down, extend: false }, T);
+        a.apply(
+            Command::Move {
+                motion: Motion::Right,
+                extend: false,
+            },
+            T,
+        );
+        a.apply(
+            Command::Move {
+                motion: Motion::Right,
+                extend: false,
+            },
+            T,
+        );
+        a.apply(
+            Command::Move {
+                motion: Motion::Down,
+                extend: false,
+            },
+            T,
+        );
         assert_eq!(a.editor().cursor(), 9, "column 2 of the second line");
     }
 
     #[test]
     fn moving_down_onto_a_shorter_line_clamps_to_its_end() {
         let mut a = app_with("abcdef\nxy");
-        a.apply(Command::Move { motion: Motion::LineEnd, extend: false }, T);
-        a.apply(Command::Move { motion: Motion::Down, extend: false }, T);
+        a.apply(
+            Command::Move {
+                motion: Motion::LineEnd,
+                extend: false,
+            },
+            T,
+        );
+        a.apply(
+            Command::Move {
+                motion: Motion::Down,
+                extend: false,
+            },
+            T,
+        );
         assert_eq!(a.editor().cursor(), 9, "end of the short line");
     }
 
     #[test]
     fn the_goal_column_survives_a_short_line() {
         let mut a = app_with("abcdef\nxy\nabcdef");
-        a.apply(Command::Move { motion: Motion::LineEnd, extend: false }, T);
-        a.apply(Command::Move { motion: Motion::Down, extend: false }, T);
-        a.apply(Command::Move { motion: Motion::Down, extend: false }, T);
+        a.apply(
+            Command::Move {
+                motion: Motion::LineEnd,
+                extend: false,
+            },
+            T,
+        );
+        a.apply(
+            Command::Move {
+                motion: Motion::Down,
+                extend: false,
+            },
+            T,
+        );
+        a.apply(
+            Command::Move {
+                motion: Motion::Down,
+                extend: false,
+            },
+            T,
+        );
         assert_eq!(a.editor().cursor(), 16, "column 6 again on the third line");
     }
 
     #[test]
     fn line_start_and_end_work_on_the_visual_line() {
         let mut a = app_with("ab\ncd");
-        a.apply(Command::Move { motion: Motion::DocEnd, extend: false }, T);
-        a.apply(Command::Move { motion: Motion::LineStart, extend: false }, T);
+        a.apply(
+            Command::Move {
+                motion: Motion::DocEnd,
+                extend: false,
+            },
+            T,
+        );
+        a.apply(
+            Command::Move {
+                motion: Motion::LineStart,
+                extend: false,
+            },
+            T,
+        );
         assert_eq!(a.editor().cursor(), 3);
-        a.apply(Command::Move { motion: Motion::LineEnd, extend: false }, T);
+        a.apply(
+            Command::Move {
+                motion: Motion::LineEnd,
+                extend: false,
+            },
+            T,
+        );
         assert_eq!(a.editor().cursor(), 5);
     }
 
     #[test]
     fn shift_movement_builds_a_selection() {
         let mut a = app_with("abcdef");
-        a.apply(Command::Move { motion: Motion::Right, extend: true }, T);
-        a.apply(Command::Move { motion: Motion::Right, extend: true }, T);
+        a.apply(
+            Command::Move {
+                motion: Motion::Right,
+                extend: true,
+            },
+            T,
+        );
+        a.apply(
+            Command::Move {
+                motion: Motion::Right,
+                extend: true,
+            },
+            T,
+        );
         assert_eq!(a.editor().selection(), Some((0, 2)));
     }
 
@@ -561,27 +652,61 @@ mod tests {
     #[test]
     fn the_viewport_follows_the_cursor_down() {
         // 40 lines in a 24-row viewport.
-        let text = (0..40).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..40)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let mut a = app_with(&text);
         assert_eq!(a.viewport_top(), 0);
-        a.apply(Command::Move { motion: Motion::DocEnd, extend: false }, T);
+        a.apply(
+            Command::Move {
+                motion: Motion::DocEnd,
+                extend: false,
+            },
+            T,
+        );
         let rows = a.text_rows();
-        assert_eq!(a.viewport_top(), 40 - rows, "the last line is the bottom one");
+        assert_eq!(
+            a.viewport_top(),
+            40 - rows,
+            "the last line is the bottom one"
+        );
     }
 
     #[test]
     fn the_viewport_follows_the_cursor_back_up() {
-        let text = (0..40).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..40)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let mut a = app_with(&text);
-        a.apply(Command::Move { motion: Motion::DocEnd, extend: false }, T);
-        a.apply(Command::Move { motion: Motion::DocStart, extend: false }, T);
+        a.apply(
+            Command::Move {
+                motion: Motion::DocEnd,
+                extend: false,
+            },
+            T,
+        );
+        a.apply(
+            Command::Move {
+                motion: Motion::DocStart,
+                extend: false,
+            },
+            T,
+        );
         assert_eq!(a.viewport_top(), 0);
     }
 
     #[test]
     fn a_short_document_never_scrolls() {
         let mut a = app_with("one\ntwo");
-        a.apply(Command::Move { motion: Motion::DocEnd, extend: false }, T);
+        a.apply(
+            Command::Move {
+                motion: Motion::DocEnd,
+                extend: false,
+            },
+            T,
+        );
         assert_eq!(a.viewport_top(), 0);
     }
 
@@ -590,7 +715,11 @@ mod tests {
         let mut a = app_with("hello");
         a.paint(true);
         assert_eq!(a.screen().cell(wrap::TEXT_LEFT, 0).glyph, b'h');
-        assert_eq!(a.screen().cell(wrap::TEXT_LEFT - 1, 0).glyph, 0x20, "margin is blank");
+        assert_eq!(
+            a.screen().cell(wrap::TEXT_LEFT - 1, 0).glyph,
+            0x20,
+            "margin is blank"
+        );
     }
 
     #[test]
@@ -619,7 +748,13 @@ mod tests {
     #[test]
     fn the_status_line_reflects_the_cursor_position() {
         let mut a = app_with("abcde");
-        a.apply(Command::Move { motion: Motion::LineEnd, extend: false }, T);
+        a.apply(
+            Command::Move {
+                motion: Motion::LineEnd,
+                extend: false,
+            },
+            T,
+        );
         a.paint(true);
         let row = a.screen().rows() - 1;
         let line: String = (0..80)
@@ -636,7 +771,10 @@ mod tests {
         let line: String = (0..80)
             .map(|c| cp437::decode(a.screen().cell(c, row).glyph))
             .collect();
-        assert!(line.trim_end().ends_with("Pos 1\""), "right-aligned: {line:?}");
+        assert!(
+            line.trim_end().ends_with("Pos 1\""),
+            "right-aligned: {line:?}"
+        );
     }
 
     #[test]
@@ -683,9 +821,18 @@ mod tests {
 
     #[test]
     fn the_offset_accounts_for_scrolling() {
-        let text = (0..40).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..40)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let mut a = app_with(&text);
-        a.apply(Command::Move { motion: Motion::DocEnd, extend: false }, T);
+        a.apply(
+            Command::Move {
+                motion: Motion::DocEnd,
+                extend: false,
+            },
+            T,
+        );
         let top = a.viewport_top();
         assert!(top > 0);
         let expected = wrap::offset_at(a.lines_for_test(), top, 0);
@@ -694,7 +841,10 @@ mod tests {
 
     #[test]
     fn scrolling_does_not_move_the_caret() {
-        let text = (0..40).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..40)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let mut a = app_with(&text);
         a.scroll(5);
         assert_eq!(a.viewport_top(), 5);
@@ -718,7 +868,10 @@ mod tests {
         use crate::vga::{FB_HEIGHT, FB_WIDTH};
 
         let mut a = App::new();
-        a.set_path(std::path::PathBuf::from("/Users/srhise/Documents/chapter-one.txt"), false);
+        a.set_path(
+            std::path::PathBuf::from("/Users/srhise/Documents/chapter-one.txt"),
+            false,
+        );
         for (i, word) in "It was a bright cold day in April, and the clocks were \
 striking thirteen. Winston Smith, his chin nuzzled into his breast in an effort \
 to escape the vile wind, slipped quickly through the glass doors of Victory \
@@ -734,7 +887,10 @@ entering along with him."
         }
         a.apply(Command::Newline, 9_000);
         a.apply(Command::Newline, 9_000);
-        a.apply(Command::Insert("The hallway smelt of boiled cabbage and old rag mats.".to_string()), 9_100);
+        a.apply(
+            Command::Insert("The hallway smelt of boiled cabbage and old rag mats.".to_string()),
+            9_100,
+        );
 
         a.paint(true);
         let mut fb = vec![0u8; FB_WIDTH * FB_HEIGHT * 4];
@@ -811,8 +967,8 @@ entering along with him."
             body: "File not found".to_string(),
         });
         a.paint(true);
-        let has_corner = (0..a.screen().rows())
-            .any(|r| (0..80).any(|c| a.screen().cell(c, r).glyph == 0xC9));
+        let has_corner =
+            (0..a.screen().rows()).any(|r| (0..80).any(|c| a.screen().cell(c, r).glyph == 0xC9));
         assert!(has_corner, "expected a double-line top-left corner");
     }
 
@@ -870,9 +1026,18 @@ entering along with him."
 
     #[test]
     fn switching_modes_keeps_the_cursor_on_screen() {
-        let text = (0..60).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..60)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let mut a = app_with(&text);
-        a.apply(Command::Move { motion: Motion::DocEnd, extend: false }, T);
+        a.apply(
+            Command::Move {
+                motion: Motion::DocEnd,
+                extend: false,
+            },
+            T,
+        );
         a.apply(Command::ToggleDenseMode, T);
         let (line, _) = a.cursor_position_for_test();
         assert!(

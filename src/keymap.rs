@@ -73,7 +73,12 @@ pub fn resolve(key: &Key, mods: &Modifiers) -> Option<Command> {
         }
     }
 
-    let motion = |motion| Some(Command::Move { motion, extend: shift });
+    let motion = |motion| {
+        Some(Command::Move {
+            motion,
+            extend: shift,
+        })
+    };
 
     match key {
         Key::Named(NamedKey::ArrowLeft) if cmd => motion(Motion::LineStart),

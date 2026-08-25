@@ -20,7 +20,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{Modifiers, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::window::{Window, WindowId};
+use winit::window::{Fullscreen, Window, WindowId};
 
 use keymap::Command;
 use overlay::{Overlay, Prompt};
@@ -46,6 +46,11 @@ struct Shell {
     mouse_cell: (usize, usize),
     mouse_down: bool,
     start: Instant,
+    config: config::Config,
+    /// Text recovered from a backup, held until the prompt is answered.
+    recovery: Option<String>,
+    last_backup_ms: u64,
+    last_fullscreen: bool,
 }
 
 impl Shell {
@@ -60,7 +65,54 @@ impl Shell {
             mouse_cell: (0, 0),
             mouse_down: false,
             start: Instant::now(),
+            config: config::Config::default(),
+            recovery: None,
+            last_backup_ms: 0,
+            last_fullscreen: false,
         }
+    }
+
+    /// Push toggles the user flipped out to the window and the config
+    /// file. Cheap enough to call after every command.
+    fn sync_settings(&mut self) {
+        let effects = self.state.effects();
+        let dense = self.state.dense();
+        let fullscreen = self.state.fullscreen();
+
+        if fullscreen != self.last_fullscreen {
+            if let Some(w) = self.window.as_ref() {
+                w.set_fullscreen(if fullscreen {
+                    Some(Fullscreen::Borderless(None))
+                } else {
+                    None
+                });
+            }
+            self.last_fullscreen = fullscreen;
+        }
+
+        if effects != self.config.effects
+            || dense != self.config.dense
+            || fullscreen != self.config.fullscreen
+        {
+            self.config.effects = effects;
+            self.config.dense = dense;
+            self.config.fullscreen = fullscreen;
+            config::save(&self.config);
+        }
+    }
+
+    /// Write a periodic backup if the document has unsaved changes.
+    fn maybe_backup(&mut self) {
+        let now = self.now_ms();
+        if !self.state.editor().is_dirty() {
+            return;
+        }
+        if now.saturating_sub(self.last_backup_ms) < backup::INTERVAL_MS {
+            return;
+        }
+        self.last_backup_ms = now;
+        let text = self.state.editor().to_string();
+        let _ = backup::write(self.state.path(), &text);
     }
 
     fn now_ms(&self) -> u64 {
@@ -100,7 +152,6 @@ impl Shell {
         ))
     }
 
-
     fn do_open(&mut self) {
         let Some(path) = rfd::FileDialog::new()
             .add_filter("Text", &["txt", "md", "text"])
@@ -136,6 +187,7 @@ impl Shell {
         let crlf = self.state.crlf();
         match fileio::save(&path, &text, crlf) {
             Ok(()) => {
+                backup::clear(self.state.path());
                 self.state.set_path(path, crlf);
                 self.state.mark_saved();
                 true
@@ -167,7 +219,10 @@ impl Shell {
                     event_loop.exit();
                 }
             }
-            (Prompt::QuitUnsaved, false) => event_loop.exit(),
+            (Prompt::QuitUnsaved, false) => {
+                backup::clear(self.state.path());
+                event_loop.exit();
+            }
             (Prompt::NewUnsaved, true) => {
                 if self.do_save(false) {
                     self.do_new();
@@ -180,7 +235,15 @@ impl Shell {
                 }
             }
             (Prompt::OpenUnsaved, false) => self.do_open(),
-            (Prompt::Recover, _) => {}
+            (Prompt::Recover, true) => {
+                if let Some(text) = self.recovery.take() {
+                    self.state.load_text(&text);
+                }
+            }
+            (Prompt::Recover, false) => {
+                self.recovery = None;
+                backup::clear(None);
+            }
         }
         self.request_redraw();
         true
@@ -257,21 +320,26 @@ impl Shell {
 
         self.state.apply(cmd, now);
         if self.state.should_quit {
+            // A clean exit leaves no backup behind to recover from.
+            backup::clear(self.state.path());
             event_loop.exit();
             return;
         }
+        self.sync_settings();
         self.request_redraw();
     }
 
     fn redraw(&mut self) {
         let elapsed = self.now_ms();
         // 2Hz: on for 250ms, off for 250ms.
-        let blink_on = (elapsed / BLINK_MS) % 2 == 0;
-        self.state.paint(blink_on);
+        let blink_on = (elapsed / BLINK_MS).is_multiple_of(2);
+        self.state.paint_at(blink_on, elapsed);
 
-        let (Some(pixels), Some(present), Some(window)) =
-            (self.pixels.as_mut(), self.present.as_ref(), self.window.as_ref())
-        else {
+        let (Some(pixels), Some(present), Some(window)) = (
+            self.pixels.as_mut(),
+            self.present.as_ref(),
+            self.window.as_ref(),
+        ) else {
             return;
         };
         self.state.screen().render(pixels.frame_mut());
@@ -279,7 +347,7 @@ impl Shell {
         let params = present::Params {
             surface: (size.width, size.height),
             time: elapsed as f32 / 1000.0,
-            effects: false,
+            effects: self.state.effects(),
         };
         if let Err(e) = pixels.render_with(|encoder, target, context| {
             present.render(encoder, target, context, &params);
@@ -295,9 +363,14 @@ impl ApplicationHandler for Shell {
         if self.window.is_some() {
             return;
         }
+        self.config = config::load();
+        self.state.set_effects(self.config.effects);
+        self.state.set_dense(self.config.dense);
+
+        let (cw, ch) = self.config.window;
         let attrs = Window::default_attributes()
             .with_title("word")
-            .with_inner_size(LogicalSize::new(1080.0, 810.0))
+            .with_inner_size(LogicalSize::new(cw.max(640) as f64, ch.max(480) as f64))
             .with_min_inner_size(LogicalSize::new(640.0, 480.0));
 
         let window = match event_loop.create_window(attrs) {
@@ -323,13 +396,37 @@ impl ApplicationHandler for Shell {
         self.present = Some(present::Present::new(&pixels));
         self.pixels = Some(pixels);
         self.window = Some(window);
+
+        if self.config.fullscreen {
+            self.state.set_fullscreen(true);
+            self.sync_settings();
+        }
+
+        // A backup that outlived its document means the last session did
+        // not end cleanly.
+        if let Some(b) = backup::pending(None) {
+            if let Ok(loaded) = fileio::load(&b) {
+                if !loaded.text.trim().is_empty() {
+                    self.recovery = Some(loaded.text);
+                    self.state
+                        .confirm(Prompt::Recover, "A backup file exists.\nOpen it? (Y/N)");
+                }
+            }
+        }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                config::save(&self.config);
+                backup::clear(self.state.path());
+                event_loop.exit();
+            }
 
             WindowEvent::Resized(size) => {
+                if !self.state.fullscreen() {
+                    self.config.window = (size.width, size.height);
+                }
                 if let Some(pixels) = self.pixels.as_mut() {
                     if let Err(e) = pixels.resize_surface(size.width.max(1), size.height.max(1)) {
                         eprintln!("resize failed: {e}");
@@ -409,6 +506,7 @@ impl ApplicationHandler for Shell {
         event_loop.set_control_flow(ControlFlow::WaitUntil(
             Instant::now() + Duration::from_millis(BLINK_MS),
         ));
+        self.maybe_backup();
         self.request_redraw();
     }
 }

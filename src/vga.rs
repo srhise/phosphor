@@ -68,8 +68,15 @@ pub struct Screen {
 
 impl Screen {
     pub fn new(mode: Mode) -> Self {
-        let blank = Cell { glyph: 0x20, fg: 7, bg: 1 };
-        Self { mode, cells: vec![blank; 80 * mode.rows()] }
+        let blank = Cell {
+            glyph: 0x20,
+            fg: 7,
+            bg: 1,
+        };
+        Self {
+            mode,
+            cells: vec![blank; 80 * mode.rows()],
+        }
     }
 
     pub fn mode(&self) -> Mode {
@@ -96,16 +103,21 @@ impl Screen {
         (col < self.cols() && row < self.rows()).then(|| row * self.cols() + col)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn cell(&self, col: usize, row: usize) -> Cell {
-        self.index(col, row)
-            .map(|i| self.cells[i])
-            .unwrap_or(Cell { glyph: 0x20, fg: 7, bg: 1 })
+        self.index(col, row).map(|i| self.cells[i]).unwrap_or(Cell {
+            glyph: 0x20,
+            fg: 7,
+            bg: 1,
+        })
     }
 
     pub fn clear(&mut self, fg: u8, bg: u8) {
-        for c in &mut self.cells {
-            *c = Cell { glyph: 0x20, fg, bg };
-        }
+        self.cells.fill(Cell {
+            glyph: 0x20,
+            fg,
+            bg,
+        });
     }
 
     pub fn set(&mut self, col: usize, row: usize, glyph: u8, fg: u8, bg: u8) {
@@ -135,7 +147,11 @@ impl Screen {
     pub fn invert(&mut self, col: usize, row: usize) {
         if let Some(i) = self.index(col, row) {
             let c = self.cells[i];
-            self.cells[i] = Cell { glyph: c.glyph, fg: c.bg, bg: c.fg };
+            self.cells[i] = Cell {
+                glyph: c.glyph,
+                fg: c.bg,
+                bg: c.fg,
+            };
         }
     }
 
@@ -189,8 +205,22 @@ mod tests {
     fn clear_fills_every_cell() {
         let mut s = Screen::new(Mode::Text80x25);
         s.clear(7, 1);
-        assert_eq!(s.cell(0, 0), Cell { glyph: 0x20, fg: 7, bg: 1 });
-        assert_eq!(s.cell(79, 24), Cell { glyph: 0x20, fg: 7, bg: 1 });
+        assert_eq!(
+            s.cell(0, 0),
+            Cell {
+                glyph: 0x20,
+                fg: 7,
+                bg: 1
+            }
+        );
+        assert_eq!(
+            s.cell(79, 24),
+            Cell {
+                glyph: 0x20,
+                fg: 7,
+                bg: 1
+            }
+        );
     }
 
     #[test]
@@ -222,7 +252,11 @@ mod tests {
         s.clear(7, 1);
         s.put_str(0, 0, "a\u{3042}b", 7, 1);
         assert_eq!(s.cell(0, 0).glyph, b'a');
-        assert_eq!(s.cell(1, 0).glyph, 0xFE, "solid block stands in for the unrenderable");
+        assert_eq!(
+            s.cell(1, 0).glyph,
+            0xFE,
+            "solid block stands in for the unrenderable"
+        );
         assert_eq!(s.cell(2, 0).glyph, b'b');
     }
 
@@ -241,7 +275,14 @@ mod tests {
         let mut s = Screen::new(Mode::Text80x25);
         s.clear(7, 1);
         s.invert(5, 5);
-        assert_eq!(s.cell(5, 5), Cell { glyph: 0x20, fg: 1, bg: 7 });
+        assert_eq!(
+            s.cell(5, 5),
+            Cell {
+                glyph: 0x20,
+                fg: 1,
+                bg: 7
+            }
+        );
     }
 
     #[test]
@@ -330,12 +371,24 @@ pub(crate) mod preview {
         let mut s = Screen::new(Mode::Text80x25);
         s.clear(7, 1);
         let left = crate::wrap::TEXT_LEFT;
-        s.put_str(left, 1, "The quick brown fox jumped over the lazy dog.", 7, 1);
+        s.put_str(
+            left,
+            1,
+            "The quick brown fox jumped over the lazy dog.",
+            7,
+            1,
+        );
         s.put_str(left, 2, "Pack my box with five dozen liquor jugs.", 7, 1);
         s.put_str(left, 4, "ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789", 7, 1);
         s.put_str(left, 5, "abcdefghijklmnopqrstuvwxyz .,;:!?'\"-()", 7, 1);
         // Box drawing, to prove the 9th-column rule connects the rules.
-        s.put_str(left, 7, "\u{2554}\u{2550}\u{2550}\u{2550} Reveal Codes \u{2550}\u{2550}\u{2550}\u{2557}", 15, 1);
+        s.put_str(
+            left,
+            7,
+            "\u{2554}\u{2550}\u{2550}\u{2550} Reveal Codes \u{2550}\u{2550}\u{2550}\u{2557}",
+            15,
+            1,
+        );
         s.put_str(left, 8, "\u{2551}  bold  italic  under  \u{2551}", 15, 1);
         s.put_str(left, 9, "\u{255A}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{255D}", 15, 1);
         // A blinking block cursor, drawn as inverse video.

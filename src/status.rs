@@ -125,14 +125,23 @@ mod tests {
 
     #[test]
     fn the_right_field_reads_like_wordperfect() {
-        assert_eq!(right_field(&measure(0, 0)), "Doc 1   Pg 1   Ln 1\"   Pos 1\"");
-        assert_eq!(right_field(&measure(1, 5)), "Doc 1   Pg 1   Ln 1.17\"   Pos 1.5\"");
+        assert_eq!(
+            right_field(&measure(0, 0)),
+            "Doc 1   Pg 1   Ln 1\"   Pos 1\""
+        );
+        assert_eq!(
+            right_field(&measure(1, 5)),
+            "Doc 1   Pg 1   Ln 1.17\"   Pos 1.5\""
+        );
     }
 
     #[test]
     fn a_path_renders_as_an_uppercase_dos_path() {
         let p = Path::new("/Users/srhise/Documents/ch1.txt");
-        assert_eq!(dos_path(Some(p), false), "C:\\USERS\\SRHISE\\DOCUMENTS\\CH1.TXT");
+        assert_eq!(
+            dos_path(Some(p), false),
+            "C:\\USERS\\SRHISE\\DOCUMENTS\\CH1.TXT"
+        );
     }
 
     #[test]
@@ -151,8 +160,15 @@ mod tests {
     fn a_long_path_is_truncated_from_the_left() {
         let p = Path::new("/a/very/deeply/nested/directory/structure/that/goes/on/file.txt");
         let out = dos_path(Some(p), false);
-        assert!(out.len() <= MAX_PATH_CELLS, "got {} cells: {out}", out.len());
+        assert!(
+            out.len() <= MAX_PATH_CELLS,
+            "got {} cells: {out}",
+            out.len()
+        );
         assert!(out.starts_with("..."), "truncation is marked: {out}");
-        assert!(out.ends_with("FILE.TXT"), "the filename always survives: {out}");
+        assert!(
+            out.ends_with("FILE.TXT"),
+            "the filename always survives: {out}"
+        );
     }
 }

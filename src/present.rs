@@ -144,7 +144,11 @@ impl Present {
             cache: None,
         });
 
-        Self { pipeline, bind_group, uniform_buffer }
+        Self {
+            pipeline,
+            bind_group,
+            uniform_buffer,
+        }
     }
 
     /// Clip-space scale that fits a 4:3 image inside the surface without
@@ -237,9 +241,18 @@ mod tests {
 
     #[test]
     fn the_drawn_rectangle_is_always_four_by_three() {
-        for surface in [(1080, 810), (1920, 1080), (800, 1200), (640, 480), (2560, 1080)] {
+        for surface in [
+            (1080, 810),
+            (1920, 1080),
+            (800, 1200),
+            (640, 480),
+            (2560, 1080),
+        ] {
             let a = drawn_aspect(surface);
-            assert!((a - 4.0 / 3.0).abs() < 1e-4, "{surface:?} drew at aspect {a}");
+            assert!(
+                (a - 4.0 / 3.0).abs() < 1e-4,
+                "{surface:?} drew at aspect {a}"
+            );
         }
     }
 
@@ -247,7 +260,10 @@ mod tests {
     fn the_scale_never_crops() {
         for surface in [(1, 1), (10000, 1), (1, 10000), (1920, 1080)] {
             let s = Present::letterbox(surface);
-            assert!(s[0] <= 1.0 + 1e-6 && s[1] <= 1.0 + 1e-6, "{surface:?} -> {s:?}");
+            assert!(
+                s[0] <= 1.0 + 1e-6 && s[1] <= 1.0 + 1e-6,
+                "{surface:?} -> {s:?}"
+            );
         }
     }
 

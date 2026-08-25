@@ -70,6 +70,7 @@ impl Editor {
         self.text.len()
     }
 
+    #[allow(dead_code)] // paired with `len` to satisfy clippy
     pub fn is_empty(&self) -> bool {
         self.text.is_empty()
     }
@@ -121,12 +122,6 @@ impl Editor {
         self.cursor = offset;
     }
 
-    /// Close the current coalescing run. Cursor movement and saving both
-    /// call this, so the next keystroke starts a fresh undo step.
-    pub fn break_undo_run(&mut self) {
-        self.run = None;
-    }
-
     /// Push an edit onto the undo stack, coalescing into the open run when
     /// the kind, adjacency, and timing all allow it.
     fn record(&mut self, entry: UndoEntry, kind: RunKind, now_ms: u64) {
@@ -174,11 +169,7 @@ impl Editor {
         }
 
         // Whitespace closes a run, so undo lands on word boundaries.
-        let ends_run = self
-            .undo
-            .last()
-            .map(entry_ends_run)
-            .unwrap_or(false);
+        let ends_run = self.undo.last().map(entry_ends_run).unwrap_or(false);
         self.run = if ends_run { None } else { Some((kind, now_ms)) };
         self.dirty = self.undo.len() != self.saved_depth;
     }
@@ -305,7 +296,8 @@ impl Editor {
         };
         // Reverse: take out what was inserted, put back what was removed.
         let end = entry.start + entry.inserted.len();
-        self.text.splice(entry.start..end, entry.removed.iter().copied());
+        self.text
+            .splice(entry.start..end, entry.removed.iter().copied());
         self.cursor = entry.cursor_before;
         self.anchor = entry.anchor_before;
         self.redo.push(entry);
@@ -319,7 +311,8 @@ impl Editor {
             return false;
         };
         let end = entry.start + entry.removed.len();
-        self.text.splice(entry.start..end, entry.inserted.iter().copied());
+        self.text
+            .splice(entry.start..end, entry.inserted.iter().copied());
         self.cursor = entry.cursor_after;
         self.anchor = None;
         self.undo.push(entry);
@@ -378,7 +371,11 @@ impl Default for Editor {
 /// Whitespace at the end of an edit closes the run, which is what puts
 /// undo granularity at roughly one word.
 fn entry_ends_run(entry: &UndoEntry) -> bool {
-    entry.inserted.last().map(|c| c.is_whitespace()).unwrap_or(false)
+    entry
+        .inserted
+        .last()
+        .map(|c| c.is_whitespace())
+        .unwrap_or(false)
 }
 
 fn is_word_break(c: char) -> bool {
@@ -493,7 +490,11 @@ mod tests {
         let mut e = Editor::from_str("abcdef");
         e.set_cursor(4, false);
         e.set_cursor(1, true);
-        assert_eq!(e.selection(), Some((1, 4)), "low, high regardless of direction");
+        assert_eq!(
+            e.selection(),
+            Some((1, 4)),
+            "low, high regardless of direction"
+        );
         assert_eq!(e.cursor(), 1, "the caret follows the head");
     }
 

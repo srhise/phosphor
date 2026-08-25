@@ -86,7 +86,9 @@ mod tests {
     use crate::vga::Mode;
 
     fn row_text(s: &Screen, row: usize) -> String {
-        (0..s.cols()).map(|c| cp437::decode(s.cell(c, row).glyph)).collect()
+        (0..s.cols())
+            .map(|c| cp437::decode(s.cell(c, row).glyph))
+            .collect()
     }
 
     #[test]
