@@ -7,6 +7,7 @@ use crate::cp437;
 use crate::editor::Editor;
 use crate::fileio::TAB_STOP;
 use crate::keymap::{Command, Motion};
+use crate::overlay::{self, Overlay, Prompt};
 use crate::status;
 use crate::vga::{Mode, Screen};
 use crate::wrap::{self, VisualLine};
@@ -27,6 +28,9 @@ pub struct App {
     lines: Vec<VisualLine>,
     /// Column the cursor is trying to keep while moving vertically.
     goal_col: Option<usize>,
+    /// The modal box, if one is open. While it is, keystrokes never
+    /// reach the document.
+    overlay: Overlay,
     pub should_quit: bool,
 }
 
@@ -42,6 +46,7 @@ impl App {
             viewport_top: 0,
             lines,
             goal_col: None,
+            overlay: Overlay::None,
             should_quit: false,
         }
     }
@@ -157,7 +162,37 @@ impl App {
         self.scroll_to_cursor();
     }
 
+    pub fn overlay(&self) -> &Overlay {
+        &self.overlay
+    }
+
+    pub fn set_overlay(&mut self, o: Overlay) {
+        self.overlay = o;
+    }
+
+    pub fn confirm(&mut self, prompt: Prompt, body: &str) {
+        self.overlay = Overlay::Confirm { prompt, body: body.to_string() };
+    }
+
+    /// Answer the open confirmation. The caller performs the resulting
+    /// action, since saving and quitting touch the outside world.
+    pub fn answer(&mut self, yes: bool) -> Option<(Prompt, bool)> {
+        let Overlay::Confirm { prompt, .. } = &self.overlay else {
+            return None;
+        };
+        let prompt = *prompt;
+        self.overlay = Overlay::None;
+        Some((prompt, yes))
+    }
+
     pub fn apply(&mut self, cmd: Command, now_ms: u64) {
+        // A modal box swallows everything except its own dismissal.
+        if !matches!(self.overlay, Overlay::None) {
+            if matches!(cmd, Command::Dismiss) {
+                self.overlay = Overlay::None;
+            }
+            return;
+        }
         match cmd {
             Command::Insert(text) => {
                 // Filter through CP437 so the buffer can only ever hold
@@ -202,7 +237,13 @@ impl App {
                     self.after_edit();
                 }
             }
-            Command::Quit => self.should_quit = true,
+            Command::Quit => {
+                if self.editor.is_dirty() {
+                    self.confirm(Prompt::QuitUnsaved, "Save changes to this document? (Y/N)");
+                } else {
+                    self.should_quit = true;
+                }
+            }
             // Handled by main.rs or by later tasks.
             Command::Copy
             | Command::Cut
@@ -272,6 +313,19 @@ impl App {
             self.paint_cursor();
         }
         self.paint_status();
+        self.paint_overlay();
+    }
+
+    fn paint_overlay(&mut self) {
+        match self.overlay.clone() {
+            Overlay::None => {}
+            Overlay::Message { title, body } => {
+                overlay::draw_centered(&mut self.screen, &title, &body, 15, 4);
+            }
+            Overlay::Confirm { body, .. } => {
+                overlay::draw_centered(&mut self.screen, "", &body, 15, 1);
+            }
+        }
     }
 
     fn paint_selection(&mut self) {
@@ -611,5 +665,78 @@ entering along with him."
         a.screen().render(&mut fb);
         crate::vga::preview::write_bmp("target/app-preview.bmp", &fb);
         println!("wrote target/app-preview.bmp");
+    }
+
+    #[test]
+    fn quitting_a_clean_document_needs_no_prompt() {
+        let mut a = app_with("saved text");
+        a.apply(Command::Quit, T);
+        assert!(a.should_quit);
+        assert!(matches!(a.overlay(), Overlay::None));
+    }
+
+    #[test]
+    fn quitting_a_dirty_document_asks_first() {
+        let mut a = App::new();
+        a.apply(Command::Insert("x".to_string()), T);
+        a.apply(Command::Quit, T);
+        assert!(!a.should_quit, "must not exit while a prompt is open");
+        assert!(matches!(a.overlay(), Overlay::Confirm { .. }));
+    }
+
+    #[test]
+    fn answering_reports_the_prompt_and_the_answer() {
+        let mut a = App::new();
+        a.apply(Command::Insert("x".to_string()), T);
+        a.apply(Command::Quit, T);
+        assert_eq!(a.answer(false), Some((Prompt::QuitUnsaved, false)));
+        assert!(matches!(a.overlay(), Overlay::None));
+    }
+
+    #[test]
+    fn answering_yes_reports_yes() {
+        let mut a = App::new();
+        a.apply(Command::Insert("x".to_string()), T);
+        a.apply(Command::Quit, T);
+        assert_eq!(a.answer(true), Some((Prompt::QuitUnsaved, true)));
+    }
+
+    #[test]
+    fn answering_with_no_prompt_open_reports_nothing() {
+        let mut a = App::new();
+        assert_eq!(a.answer(true), None);
+    }
+
+    #[test]
+    fn escape_dismisses_a_prompt_without_acting() {
+        let mut a = App::new();
+        a.apply(Command::Insert("x".to_string()), T);
+        a.apply(Command::Quit, T);
+        a.apply(Command::Dismiss, T);
+        assert!(matches!(a.overlay(), Overlay::None));
+        assert!(!a.should_quit);
+    }
+
+    #[test]
+    fn keystrokes_do_not_reach_the_document_while_an_overlay_is_open() {
+        let mut a = App::new();
+        a.apply(Command::Insert("x".to_string()), T);
+        a.apply(Command::Quit, T);
+        a.apply(Command::Insert("zzz".to_string()), T);
+        a.apply(Command::Backspace, T);
+        assert_eq!(a.editor().to_string(), "x", "the prompt swallowed them");
+    }
+
+    #[test]
+    fn an_error_overlay_renders_a_framed_box() {
+        let mut a = App::new();
+        a.set_overlay(Overlay::Message {
+            title: "Error".to_string(),
+            body: "File not found".to_string(),
+        });
+        a.paint(true);
+        let has_corner = (0..a.screen().rows())
+            .any(|r| (0..80).any(|c| a.screen().cell(c, r).glyph == 0xC9));
+        assert!(has_corner, "expected a double-line top-left corner");
     }
 }

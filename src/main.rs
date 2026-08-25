@@ -4,6 +4,7 @@ mod editor;
 mod fileio;
 mod font;
 mod keymap;
+mod overlay;
 mod present;
 mod status;
 mod vga;
@@ -20,6 +21,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
 use keymap::Command;
+use overlay::{Overlay, Prompt};
 use vga::{FB_HEIGHT, FB_WIDTH};
 
 /// VGA text mode was shown on a 4:3 monitor; the same letterboxing the
@@ -96,6 +98,92 @@ impl Shell {
         ))
     }
 
+
+    fn do_open(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Text", &["txt", "md", "text"])
+            .pick_file()
+        else {
+            return;
+        };
+        match fileio::load(&path) {
+            Ok(loaded) => {
+                self.state.load_text(&loaded.text);
+                self.state.set_path(path, loaded.crlf);
+            }
+            Err(e) => self.state.set_overlay(Overlay::Message {
+                title: "Error".to_string(),
+                body: format!("Cannot open file: {e}"),
+            }),
+        }
+    }
+
+    /// Returns whether the document ended up saved.
+    fn do_save(&mut self, force_dialog: bool) -> bool {
+        let path = match (self.state.path(), force_dialog) {
+            (Some(p), false) => p.to_path_buf(),
+            _ => match rfd::FileDialog::new()
+                .set_file_name("untitled.txt")
+                .save_file()
+            {
+                Some(p) => p,
+                None => return false,
+            },
+        };
+        let text = self.state.editor().to_string();
+        let crlf = self.state.crlf();
+        match fileio::save(&path, &text, crlf) {
+            Ok(()) => {
+                self.state.set_path(path, crlf);
+                self.state.mark_saved();
+                true
+            }
+            Err(e) => {
+                self.state.set_overlay(Overlay::Message {
+                    title: "Error".to_string(),
+                    body: format!("Cannot save: {e}"),
+                });
+                false
+            }
+        }
+    }
+
+    fn do_new(&mut self) {
+        self.state = app::App::new();
+    }
+
+    /// Y or N on an open confirmation. Returns whether it was consumed.
+    fn answer_prompt(&mut self, yes: bool, event_loop: &ActiveEventLoop) -> bool {
+        let Some((prompt, yes)) = self.state.answer(yes) else {
+            return false;
+        };
+        match (prompt, yes) {
+            // "Save changes?" -> yes means save first, and a cancelled or
+            // failed save aborts the whole action rather than losing work.
+            (Prompt::QuitUnsaved, true) => {
+                if self.do_save(false) {
+                    event_loop.exit();
+                }
+            }
+            (Prompt::QuitUnsaved, false) => event_loop.exit(),
+            (Prompt::NewUnsaved, true) => {
+                if self.do_save(false) {
+                    self.do_new();
+                }
+            }
+            (Prompt::NewUnsaved, false) => self.do_new(),
+            (Prompt::OpenUnsaved, true) => {
+                if self.do_save(false) {
+                    self.do_open();
+                }
+            }
+            (Prompt::OpenUnsaved, false) => self.do_open(),
+            (Prompt::Recover, _) => {}
+        }
+        self.request_redraw();
+        true
+    }
+
     fn copy_to_clipboard(&mut self) {
         let text = self.state.editor().selected_text();
         if text.is_empty() {
@@ -132,6 +220,36 @@ impl Shell {
                 Some(t) if !t.is_empty() => Command::Insert(t),
                 _ => return,
             },
+            Command::Open => {
+                if self.state.editor().is_dirty() {
+                    self.state
+                        .confirm(Prompt::OpenUnsaved, "Save changes to this document? (Y/N)");
+                } else {
+                    self.do_open();
+                }
+                self.request_redraw();
+                return;
+            }
+            Command::New => {
+                if self.state.editor().is_dirty() {
+                    self.state
+                        .confirm(Prompt::NewUnsaved, "Save changes to this document? (Y/N)");
+                } else {
+                    self.do_new();
+                }
+                self.request_redraw();
+                return;
+            }
+            Command::Save => {
+                self.do_save(false);
+                self.request_redraw();
+                return;
+            }
+            Command::SaveAs => {
+                self.do_save(true);
+                self.request_redraw();
+                return;
+            }
             other => other,
         };
 
@@ -223,6 +341,23 @@ impl ApplicationHandler for Shell {
             WindowEvent::KeyboardInput { event, .. } => {
                 if !event.state.is_pressed() {
                     return;
+                }
+                // A confirmation takes Y and N directly, the way the
+                // era's prompts did.
+                if matches!(self.state.overlay(), Overlay::Confirm { .. }) {
+                    if let winit::keyboard::Key::Character(c) = &event.logical_key {
+                        match c.to_lowercase().as_str() {
+                            "y" => {
+                                self.answer_prompt(true, event_loop);
+                                return;
+                            }
+                            "n" => {
+                                self.answer_prompt(false, event_loop);
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
                 }
                 if let Some(cmd) = keymap::resolve(&event.logical_key, &self.modifiers) {
                     self.dispatch(cmd, event_loop);
