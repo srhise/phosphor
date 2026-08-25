@@ -8,6 +8,8 @@ mod font;
 mod keymap;
 mod overlay;
 mod present;
+#[cfg(test)]
+mod simulate;
 mod status;
 #[cfg(test)]
 mod stress;

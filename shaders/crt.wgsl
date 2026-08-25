@@ -95,8 +95,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var color = textureSample(tex, samp, sharp_uv(uv)).rgb;
 
-    // Phosphor bloom: a small cross-shaped tap set, so bright text glows
-    // into the dark around it the way it did on a real tube.
+    // Phosphor bloom: bright text spills into the dark around it.
+    //
+    // Only the light in EXCESS of this pixel counts. Adding the raw
+    // neighbour average would reduce, on any flat area, to multiplying
+    // every pixel by (1 + strength) -- a global brightness boost that
+    // washes the background out and fattens every glyph.
     var glow = vec3<f32>(0.0);
     glow = glow + textureSample(tex, samp, uv + vec2<f32>( BLOOM_RADIUS, 0.0)).rgb;
     glow = glow + textureSample(tex, samp, uv + vec2<f32>(-BLOOM_RADIUS, 0.0)).rgb;
@@ -104,7 +108,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     glow = glow + textureSample(tex, samp, uv + vec2<f32>(0.0, -BLOOM_RADIUS)).rgb;
     glow = glow + textureSample(tex, samp, uv + vec2<f32>( BLOOM_RADIUS,  BLOOM_RADIUS)).rgb;
     glow = glow + textureSample(tex, samp, uv + vec2<f32>(-BLOOM_RADIUS, -BLOOM_RADIUS)).rgb;
-    color = color + glow * (BLOOM_STRENGTH / 6.0);
+    let excess = max(glow / 6.0 - color, vec3<f32>(0.0));
+    color = color + excess * BLOOM_STRENGTH;
 
     // Scanlines at the source row frequency.
     let scan = 1.0 - SCANLINE_DEPTH * pow(sin(uv.y * SOURCE_HEIGHT * 3.14159265), 2.0);

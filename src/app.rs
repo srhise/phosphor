@@ -16,6 +16,8 @@ use crate::wrap::{self, VisualLine};
 const FG: u8 = 7;
 const BG: u8 = 1;
 const STATUS_FG: u8 = 15;
+/// Columns of clearance at each end of the status line.
+const STATUS_MARGIN: usize = 2;
 
 /// Shown by F1. The keys stay discoverable without a permanent hint bar
 /// eating a row of the writing surface forever.
@@ -451,8 +453,11 @@ impl App {
             self.screen.set(col, row, 0x20, STATUS_FG, BG);
         }
 
+        // A column of margin each side: the tube's curvature eats the very
+        // edge of the screen, and text flush to it reads as clipped.
         let left = status::dos_path(self.path.as_deref(), self.editor.is_dirty());
-        self.screen.put_str(0, row, &left, STATUS_FG, BG);
+        self.screen
+            .put_str(STATUS_MARGIN, row, &left, STATUS_FG, BG);
 
         let right = if self.now_ms < self.word_count_until {
             format!("{} words", self.editor.word_count())
@@ -460,7 +465,10 @@ impl App {
             let (line, col) = self.cursor_position();
             status::right_field(&status::measure(line, col))
         };
-        let start = self.screen.cols().saturating_sub(right.chars().count());
+        let start = self
+            .screen
+            .cols()
+            .saturating_sub(right.chars().count() + STATUS_MARGIN);
         self.screen.put_str(start, row, &right, STATUS_FG, BG);
     }
 }

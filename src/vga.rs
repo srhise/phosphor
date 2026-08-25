@@ -336,9 +336,14 @@ pub(crate) mod preview {
     use std::io::Write;
 
     pub(crate) fn write_bmp(path: &str, fb: &[u8]) {
-        let (w, h) = (FB_WIDTH, FB_HEIGHT);
-        let row = w * 3; // 2160 bytes, already 4-byte aligned
-        let pixels = row * h;
+        write_bmp_rgba(path, fb, FB_WIDTH, FB_HEIGHT)
+    }
+
+    /// Write RGBA pixel data as a 24-bit BMP of any size.
+    pub(crate) fn write_bmp_rgba(path: &str, fb: &[u8], w: usize, h: usize) {
+        let row = w * 3;
+        let pad = (4 - row % 4) % 4;
+        let pixels = (row + pad) * h;
         let mut out = Vec::with_capacity(54 + pixels);
         out.extend_from_slice(b"BM");
         out.extend_from_slice(&((54 + pixels) as u32).to_le_bytes());
@@ -360,6 +365,7 @@ pub(crate) mod preview {
                 out.push(fb[i + 1]);
                 out.push(fb[i]);
             }
+            out.extend(std::iter::repeat_n(0u8, pad));
         }
         let mut f = std::fs::File::create(path).expect("create bmp");
         f.write_all(&out).expect("write bmp");
