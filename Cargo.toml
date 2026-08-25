@@ -8,6 +8,9 @@ winit = "0.30"
 pixels = "0.17"
 rfd = "0.17"
 arboard = "3"
+dirs = "6"
+serde = { version = "1", features = ["derive"] }
+toml = "1"
 bytemuck = { version = "1", features = ["derive"] }
 
 [dev-dependencies]

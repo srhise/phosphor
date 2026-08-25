@@ -17,6 +17,21 @@ const FG: u8 = 7;
 const BG: u8 = 1;
 const STATUS_FG: u8 = 15;
 
+/// Shown by F1. The keys stay discoverable without a permanent hint bar
+/// eating a row of the writing surface forever.
+const HELP_TEXT: &str = "\
+Cmd-N  New            Cmd-Z  Undo
+Cmd-O  Open           Cmd-Shift-Z  Redo
+Cmd-S  Save           Cmd-A  Select all
+Cmd-Shift-S  Save as  Cmd-C / X / V  Copy, cut, paste
+Cmd-Q  Quit
+
+Opt-Arrow  By word    Cmd-Arrow  Line or document
+F3  CRT effects       F5  80x25 / 80x50
+F6  Word count        F11  Fullscreen
+
+Esc  Close this";
+
 pub struct App {
     editor: Editor,
     screen: Screen,
@@ -28,9 +43,17 @@ pub struct App {
     lines: Vec<VisualLine>,
     /// Column the cursor is trying to keep while moving vertically.
     goal_col: Option<usize>,
+    /// Last clock reading handed to `paint_at`.
+    now_ms: u64,
     /// The modal box, if one is open. While it is, keystrokes never
     /// reach the document.
     overlay: Overlay,
+    /// The word count replaces the status readout until this moment.
+    word_count_until: u64,
+    /// CRT effects and fullscreen live here so the shell can read them
+    /// back; both persist to the config file.
+    effects: bool,
+    fullscreen: bool,
     pub should_quit: bool,
 }
 
@@ -46,7 +69,11 @@ impl App {
             viewport_top: 0,
             lines,
             goal_col: None,
+            now_ms: 0,
             overlay: Overlay::None,
+            word_count_until: 0,
+            effects: true,
+            fullscreen: false,
             should_quit: false,
         }
     }
@@ -162,6 +189,37 @@ impl App {
         self.scroll_to_cursor();
     }
 
+    pub fn effects(&self) -> bool {
+        self.effects
+    }
+
+    pub fn set_effects(&mut self, on: bool) {
+        self.effects = on;
+    }
+
+    pub fn fullscreen(&self) -> bool {
+        self.fullscreen
+    }
+
+    pub fn set_fullscreen(&mut self, on: bool) {
+        self.fullscreen = on;
+    }
+
+    pub fn dense(&self) -> bool {
+        self.screen.mode() == Mode::Text80x50
+    }
+
+    pub fn set_dense(&mut self, dense: bool) {
+        let mode = if dense { Mode::Text80x50 } else { Mode::Text80x25 };
+        self.screen.set_mode(mode);
+        self.scroll_to_cursor();
+    }
+
+    #[cfg(test)]
+    pub fn cursor_position_for_test(&self) -> (usize, usize) {
+        self.cursor_position()
+    }
+
     pub fn overlay(&self) -> &Overlay {
         &self.overlay
     }
@@ -244,7 +302,20 @@ impl App {
                     self.should_quit = true;
                 }
             }
-            // Handled by main.rs or by later tasks.
+            Command::ToggleHelp => {
+                self.overlay = Overlay::Message {
+                    title: "Help".to_string(),
+                    body: HELP_TEXT.to_string(),
+                };
+            }
+            Command::ShowWordCount => self.word_count_until = now_ms + 3_000,
+            Command::ToggleDenseMode => {
+                let dense = self.dense();
+                self.set_dense(!dense);
+            }
+            Command::ToggleEffects => self.effects = !self.effects,
+            Command::ToggleFullscreen => self.fullscreen = !self.fullscreen,
+            // The shell performs these: they touch the OS.
             Command::Copy
             | Command::Cut
             | Command::Paste
@@ -252,11 +323,6 @@ impl App {
             | Command::Open
             | Command::Save
             | Command::SaveAs
-            | Command::ToggleHelp
-            | Command::ToggleEffects
-            | Command::ToggleDenseMode
-            | Command::ShowWordCount
-            | Command::ToggleFullscreen
             | Command::Dismiss => {}
         }
     }
@@ -296,6 +362,12 @@ impl App {
     /// Repaint the grid from application state. `blink_on` drives the
     /// cursor's 2Hz blink.
     pub fn paint(&mut self, blink_on: bool) {
+        self.paint_at(blink_on, 0)
+    }
+
+    /// `now_ms` drives the word-count readout's expiry.
+    pub fn paint_at(&mut self, blink_on: bool, now_ms: u64) {
+        self.now_ms = now_ms;
         self.screen.clear(FG, BG);
         let rows = self.text_rows();
         let text = self.editor.text();
@@ -367,8 +439,12 @@ impl App {
         let left = status::dos_path(self.path.as_deref(), self.editor.is_dirty());
         self.screen.put_str(0, row, &left, STATUS_FG, BG);
 
-        let (line, col) = self.cursor_position();
-        let right = status::right_field(&status::measure(line, col));
+        let right = if self.now_ms < self.word_count_until {
+            format!("{} words", self.editor.word_count())
+        } else {
+            let (line, col) = self.cursor_position();
+            status::right_field(&status::measure(line, col))
+        };
         let start = self.screen.cols().saturating_sub(right.chars().count());
         self.screen.put_str(start, row, &right, STATUS_FG, BG);
     }
@@ -738,5 +814,81 @@ entering along with him."
         let has_corner = (0..a.screen().rows())
             .any(|r| (0..80).any(|c| a.screen().cell(c, r).glyph == 0xC9));
         assert!(has_corner, "expected a double-line top-left corner");
+    }
+
+    #[test]
+    fn f1_opens_and_closes_the_help_overlay() {
+        let mut a = App::new();
+        a.apply(Command::ToggleHelp, T);
+        assert!(matches!(a.overlay(), Overlay::Message { .. }));
+        a.apply(Command::Dismiss, T);
+        assert!(matches!(a.overlay(), Overlay::None));
+    }
+
+    #[test]
+    fn the_help_overlay_lists_the_keys() {
+        let mut a = App::new();
+        a.apply(Command::ToggleHelp, T);
+        a.paint(true);
+        let all: String = (0..a.screen().rows())
+            .flat_map(|r| (0..80).map(move |c| (c, r)))
+            .map(|(c, r)| cp437::decode(a.screen().cell(c, r).glyph))
+            .collect();
+        assert!(all.contains("Undo"), "expected the key list");
+    }
+
+    #[test]
+    fn the_word_count_appears_in_the_status_line_then_expires() {
+        let mut a = app_with("one two three");
+        a.apply(Command::ShowWordCount, T);
+        a.paint_at(true, T);
+        let row = a.screen().rows() - 1;
+        let line: String = (0..80)
+            .map(|c| cp437::decode(a.screen().cell(c, row).glyph))
+            .collect();
+        assert!(line.contains("3 words"), "got: {line}");
+
+        // Three seconds later the status line is back to normal.
+        a.paint_at(true, T + 3_001);
+        let line: String = (0..80)
+            .map(|c| cp437::decode(a.screen().cell(c, row).glyph))
+            .collect();
+        assert!(!line.contains("3 words"), "got: {line}");
+        assert!(line.contains("Pos"), "got: {line}");
+    }
+
+    #[test]
+    fn dense_mode_doubles_the_available_rows() {
+        let mut a = App::new();
+        assert_eq!(a.text_rows(), 24);
+        a.apply(Command::ToggleDenseMode, T);
+        assert_eq!(a.text_rows(), 49);
+        assert!(a.dense());
+        a.apply(Command::ToggleDenseMode, T);
+        assert_eq!(a.text_rows(), 24);
+    }
+
+    #[test]
+    fn switching_modes_keeps_the_cursor_on_screen() {
+        let text = (0..60).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let mut a = app_with(&text);
+        a.apply(Command::Move { motion: Motion::DocEnd, extend: false }, T);
+        a.apply(Command::ToggleDenseMode, T);
+        let (line, _) = a.cursor_position_for_test();
+        assert!(
+            line >= a.viewport_top() && line < a.viewport_top() + a.text_rows(),
+            "cursor at line {line} is off screen"
+        );
+    }
+
+    #[test]
+    fn the_effects_and_fullscreen_toggles_flip() {
+        let mut a = App::new();
+        assert!(a.effects());
+        a.apply(Command::ToggleEffects, T);
+        assert!(!a.effects());
+        assert!(!a.fullscreen());
+        a.apply(Command::ToggleFullscreen, T);
+        assert!(a.fullscreen());
     }
 }

@@ -1,4 +1,6 @@
 mod app;
+mod backup;
+mod config;
 mod cp437;
 mod editor;
 mod fileio;
