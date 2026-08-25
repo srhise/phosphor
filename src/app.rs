@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use crate::cp437;
 use crate::editor::Editor;
 use crate::fileio::TAB_STOP;
+use crate::input::{Input, Purpose};
 use crate::keymap::{Command, Motion};
+use crate::menu::{self, MenuState};
 use crate::overlay::{self, Overlay, Prompt};
 use crate::status;
 use crate::vga::{Mode, Screen};
@@ -52,6 +54,9 @@ pub struct App {
     overlay: Overlay,
     /// The word count replaces the status readout until this moment.
     word_count_until: u64,
+    /// A value the user entered in a modal, waiting for the shell to act
+    /// on it -- naming, saving, and retrieving all touch the filesystem.
+    submitted: Option<(Purpose, String)>,
     /// CRT effects and fullscreen live here so the shell can read them
     /// back; both persist to the config file.
     effects: bool,
@@ -74,6 +79,7 @@ impl App {
             now_ms: 0,
             overlay: Overlay::None,
             word_count_until: 0,
+            submitted: None,
             effects: true,
             fullscreen: false,
             should_quit: false,
@@ -253,13 +259,133 @@ impl App {
         Some((prompt, yes))
     }
 
-    pub fn apply(&mut self, cmd: Command, now_ms: u64) {
-        // A modal box swallows everything except its own dismissal.
-        if !matches!(self.overlay, Overlay::None) {
-            if matches!(cmd, Command::Dismiss) {
-                self.overlay = Overlay::None;
+    /// Take whatever a modal field submitted, if anything.
+    pub fn take_submitted(&mut self) -> Option<(Purpose, String)> {
+        self.submitted.take()
+    }
+
+    pub fn open_menu(&mut self) {
+        self.overlay = Overlay::Menu(MenuState::new());
+    }
+
+    pub fn open_field(&mut self, purpose: Purpose, title: &str, label: &str, seed: &str) {
+        let mut field = Input::new(purpose, title, label);
+        field.set_value(seed);
+        self.overlay = Overlay::Field(field);
+    }
+
+    /// Keys reaching an open menu. Returns a command it fired, if any.
+    fn menu_key(&mut self, cmd: Command) -> Option<Command> {
+        let Overlay::Menu(state) = &mut self.overlay else {
+            return None;
+        };
+        let fired = match cmd {
+            Command::Move {
+                motion: Motion::Left,
+                ..
+            } => {
+                state.left();
+                None
             }
+            Command::Move {
+                motion: Motion::Right,
+                ..
+            } => {
+                state.right();
+                None
+            }
+            Command::Move {
+                motion: Motion::Up, ..
+            } => {
+                state.up();
+                None
+            }
+            Command::Move {
+                motion: Motion::Down,
+                ..
+            } => {
+                state.down();
+                None
+            }
+            Command::Newline => state.activate(),
+            Command::Insert(text) => text.chars().next().and_then(|c| state.letter(c)),
+            Command::Dismiss => {
+                if !state.escape() {
+                    self.overlay = Overlay::None;
+                }
+                None
+            }
+            // Anything else closes the menu and is discarded.
+            _ => {
+                self.overlay = Overlay::None;
+                None
+            }
+        };
+        if fired.is_some() {
+            self.overlay = Overlay::None;
+        }
+        fired
+    }
+
+    /// Keys reaching an open modal field.
+    fn field_key(&mut self, cmd: Command) {
+        let Overlay::Field(field) = &mut self.overlay else {
             return;
+        };
+        match cmd {
+            Command::Insert(text) => field.insert(&text),
+            Command::Backspace => field.backspace(),
+            Command::DeleteForward => field.delete(),
+            Command::Move {
+                motion: Motion::Left,
+                ..
+            } => field.left(),
+            Command::Move {
+                motion: Motion::Right,
+                ..
+            } => field.right(),
+            Command::Move {
+                motion: Motion::LineStart,
+                ..
+            } => field.home(),
+            Command::Move {
+                motion: Motion::LineEnd,
+                ..
+            } => field.end(),
+            Command::Newline => {
+                let value = field.value();
+                let purpose = field.purpose();
+                self.overlay = Overlay::None;
+                // An empty name is the same as backing out.
+                if !value.trim().is_empty() {
+                    self.submitted = Some((purpose, value));
+                }
+            }
+            Command::Dismiss => self.overlay = Overlay::None,
+            _ => {}
+        }
+    }
+
+    pub fn apply(&mut self, cmd: Command, now_ms: u64) {
+        // Whatever holds focus consumes the key first.
+        match &self.overlay {
+            Overlay::Menu(_) => {
+                if let Some(fired) = self.menu_key(cmd) {
+                    self.apply(fired, now_ms);
+                }
+                return;
+            }
+            Overlay::Field(_) => {
+                self.field_key(cmd);
+                return;
+            }
+            Overlay::Message { .. } | Overlay::Confirm { .. } => {
+                if matches!(cmd, Command::Dismiss) {
+                    self.overlay = Overlay::None;
+                }
+                return;
+            }
+            Overlay::None => {}
         }
         match cmd {
             Command::Insert(text) => {
@@ -305,6 +431,7 @@ impl App {
                     self.after_edit();
                 }
             }
+            Command::MenuBar => self.open_menu(),
             Command::Quit => {
                 if self.editor.is_dirty() {
                     self.confirm(Prompt::QuitUnsaved, "Save changes to this document? (Y/N)");
@@ -332,6 +459,7 @@ impl App {
             | Command::Paste
             | Command::New
             | Command::Open
+            | Command::Retrieve
             | Command::Save
             | Command::SaveAs
             | Command::Dismiss => {}
@@ -403,6 +531,8 @@ impl App {
     fn paint_overlay(&mut self) {
         match self.overlay.clone() {
             Overlay::None => {}
+            Overlay::Menu(state) => self.paint_menu(&state),
+            Overlay::Field(field) => self.paint_field(&field),
             Overlay::Message {
                 title,
                 body,
@@ -444,6 +574,110 @@ impl App {
         if row < self.text_rows() {
             self.screen.invert(wrap::TEXT_LEFT + col, row);
         }
+    }
+
+    /// The bar across row 0, plus a dropdown when one is pulled down.
+    fn paint_menu(&mut self, state: &MenuState) {
+        let bar_fg = 0; // black on grey: the bar is a surface, not text
+        let bar_bg = 7;
+        for col in 0..self.screen.cols() {
+            self.screen.set(col, 0, 0x20, bar_fg, bar_bg);
+        }
+
+        let mut x = 2;
+        let mut open_at = 0;
+        for (i, m) in menu::MENUS.iter().enumerate() {
+            let selected = i == state.menu();
+            let (fg, bg) = if selected {
+                (bar_bg, bar_fg)
+            } else {
+                (bar_fg, bar_bg)
+            };
+            self.screen.put_str(x, 0, " ", fg, bg);
+            self.screen.put_str(x + 1, 0, m.title, fg, bg);
+            self.screen
+                .put_str(x + 1 + m.title.chars().count(), 0, " ", fg, bg);
+            if selected {
+                open_at = x;
+            }
+            x += m.title.chars().count() + 3;
+        }
+
+        let Some(highlighted) = state.item() else {
+            return;
+        };
+        let items = menu::MENUS[state.menu()].items;
+        let widest = items
+            .iter()
+            .map(|i| i.label.chars().count() + i.hotkey.chars().count() + 6)
+            .max()
+            .unwrap_or(20);
+        let width = widest.clamp(20, self.screen.cols() - open_at);
+        let height = items.len() + 2;
+
+        overlay::draw_box(&mut self.screen, open_at, 1, width, height, bar_fg, bar_bg);
+        for (i, it) in items.iter().enumerate() {
+            let row = 2 + i;
+            if it.command.is_none() {
+                // A rule across the interior, tied into both edges.
+                for c in 1..width - 1 {
+                    self.screen.set(open_at + c, row, 0xC4, bar_fg, bar_bg);
+                }
+                self.screen.set(open_at, row, 0xC7, bar_fg, bar_bg);
+                self.screen
+                    .set(open_at + width - 1, row, 0xB6, bar_fg, bar_bg);
+                continue;
+            }
+            let selected = i == highlighted;
+            let (fg, bg) = if selected {
+                (bar_bg, bar_fg)
+            } else {
+                (bar_fg, bar_bg)
+            };
+            for c in 1..width - 1 {
+                self.screen.set(open_at + c, row, 0x20, fg, bg);
+            }
+            self.screen.put_str(open_at + 2, row, it.label, fg, bg);
+            if !it.hotkey.is_empty() {
+                let hx = open_at + width - 2 - it.hotkey.chars().count();
+                self.screen.put_str(hx, row, it.hotkey, fg, bg);
+            }
+        }
+    }
+
+    /// A framed box with a single editable line and a block cursor.
+    fn paint_field(&mut self, field: &Input) {
+        let fg = 15;
+        let bg = BG;
+        let inner = 44usize;
+        let width = inner + 6;
+        let height = 7;
+        let x = (self.screen.cols() - width) / 2;
+        let y = (self.screen.rows().saturating_sub(height)) / 2;
+
+        overlay::draw_box(&mut self.screen, x, y, width, height, fg, bg);
+        let title = format!(" {} ", field.title());
+        let tx = x + (width.saturating_sub(title.chars().count())) / 2;
+        self.screen.put_str(tx, y, &title, fg, bg);
+        self.screen.put_str(x + 3, y + 2, field.label(), fg, bg);
+
+        // The field itself, sunk into the box.
+        let fx = x + 3;
+        let fy = y + 3;
+        for c in 0..inner {
+            self.screen.set(fx + c, fy, 0x20, 0, 7);
+        }
+        // Scroll the value so the cursor stays visible in a long path.
+        let value: Vec<char> = field.value().chars().collect();
+        let offset = field.cursor().saturating_sub(inner.saturating_sub(1));
+        let shown: String = value.iter().skip(offset).take(inner).collect();
+        self.screen.put_str(fx, fy, &shown, 0, 7);
+        let cx = fx + (field.cursor() - offset).min(inner - 1);
+        self.screen.invert(cx, fy);
+
+        let help = "Enter  Accept     Esc  Cancel";
+        let hx = x + (width.saturating_sub(help.chars().count())) / 2;
+        self.screen.put_str(hx, y + 5, help, fg, bg);
     }
 
     fn paint_status(&mut self) {
@@ -1096,5 +1330,198 @@ the wall.",
         a.screen().render(&mut fb);
         crate::vga::preview::write_bmp("target/help-preview.bmp", &fb);
         println!("wrote target/help-preview.bmp");
+    }
+
+    // --- focus routing ---
+
+    fn key(a: &mut App, cmd: Command) {
+        a.apply(cmd, T);
+    }
+
+    #[test]
+    fn the_menu_bar_opens_and_closes() {
+        let mut a = App::new();
+        key(&mut a, Command::MenuBar);
+        assert!(matches!(a.overlay(), Overlay::Menu(_)));
+        key(&mut a, Command::Dismiss);
+        assert!(
+            matches!(a.overlay(), Overlay::None),
+            "one Esc leaves the bar"
+        );
+    }
+
+    #[test]
+    fn typing_does_not_reach_the_document_while_the_menu_is_open() {
+        let mut a = app_with("x");
+        key(&mut a, Command::MenuBar);
+        key(&mut a, Command::Insert("zzz".to_string()));
+        assert_eq!(a.editor().to_string(), "x", "the menu took the letters");
+    }
+
+    #[test]
+    fn choosing_a_menu_item_runs_its_command_and_closes_the_menu() {
+        let mut a = App::new();
+        key(&mut a, Command::Insert("hello".to_string()));
+        key(&mut a, Command::MenuBar);
+        key(&mut a, Command::Insert("e".to_string())); // Edit
+        key(&mut a, Command::Insert("u".to_string())); // Undo
+        assert_eq!(a.editor().to_string(), "", "Undo actually ran");
+        assert!(matches!(a.overlay(), Overlay::None), "and the menu closed");
+    }
+
+    #[test]
+    fn arrowing_to_an_item_and_pressing_enter_runs_it() {
+        let mut a = App::new();
+        key(&mut a, Command::MenuBar);
+        key(&mut a, Command::Insert("v".to_string())); // View
+        key(&mut a, Command::Newline); // first item: CRT Effects
+        assert!(!a.effects(), "the toggle fired");
+        assert!(matches!(a.overlay(), Overlay::None));
+    }
+
+    #[test]
+    fn escape_backs_out_of_a_dropdown_before_leaving_the_bar() {
+        let mut a = App::new();
+        key(&mut a, Command::MenuBar);
+        key(
+            &mut a,
+            Command::Move {
+                motion: Motion::Down,
+                extend: false,
+            },
+        );
+        key(&mut a, Command::Dismiss);
+        assert!(matches!(a.overlay(), Overlay::Menu(_)), "still on the bar");
+        key(&mut a, Command::Dismiss);
+        assert!(matches!(a.overlay(), Overlay::None));
+    }
+
+    #[test]
+    fn a_modal_field_takes_typing_instead_of_the_document() {
+        let mut a = app_with("doc");
+        a.open_field(Purpose::SaveAs, "Save Document", "Filename:", "");
+        key(&mut a, Command::Insert("notes.txt".to_string()));
+        assert_eq!(a.editor().to_string(), "doc", "document untouched");
+        let Overlay::Field(f) = a.overlay() else {
+            panic!("field should still be open");
+        };
+        assert_eq!(f.value(), "notes.txt");
+    }
+
+    #[test]
+    fn a_field_seeds_from_the_current_name() {
+        let mut a = App::new();
+        a.open_field(Purpose::SaveAs, "Save Document", "Filename:", "ch1.txt");
+        let Overlay::Field(f) = a.overlay() else {
+            panic!("field");
+        };
+        assert_eq!(f.value(), "ch1.txt");
+        assert_eq!(f.cursor(), 7, "cursor ready at the end");
+    }
+
+    #[test]
+    fn submitting_a_field_hands_the_value_over_once() {
+        let mut a = App::new();
+        a.open_field(Purpose::CreateAtLaunch, "New Document", "Name:", "");
+        key(&mut a, Command::Insert("chapter-one.txt".to_string()));
+        key(&mut a, Command::Newline);
+        assert!(matches!(a.overlay(), Overlay::None), "the modal closed");
+        assert_eq!(
+            a.take_submitted(),
+            Some((Purpose::CreateAtLaunch, "chapter-one.txt".to_string()))
+        );
+        assert_eq!(a.take_submitted(), None, "taken only once");
+    }
+
+    #[test]
+    fn escaping_a_field_submits_nothing() {
+        let mut a = App::new();
+        a.open_field(Purpose::CreateAtLaunch, "New Document", "Name:", "");
+        key(&mut a, Command::Insert("draft".to_string()));
+        key(&mut a, Command::Dismiss);
+        assert!(matches!(a.overlay(), Overlay::None));
+        assert_eq!(a.take_submitted(), None, "Esc skips straight past");
+    }
+
+    #[test]
+    fn an_empty_name_is_the_same_as_backing_out() {
+        let mut a = App::new();
+        a.open_field(Purpose::CreateAtLaunch, "New Document", "Name:", "");
+        key(&mut a, Command::Insert("   ".to_string()));
+        key(&mut a, Command::Newline);
+        assert_eq!(a.take_submitted(), None);
+    }
+
+    #[test]
+    fn editing_keys_work_inside_a_field() {
+        let mut a = App::new();
+        a.open_field(Purpose::SaveAs, "Save Document", "Filename:", "abc");
+        key(&mut a, Command::Backspace);
+        key(
+            &mut a,
+            Command::Move {
+                motion: Motion::LineStart,
+                extend: false,
+            },
+        );
+        key(&mut a, Command::Insert("X".to_string()));
+        let Overlay::Field(f) = a.overlay() else {
+            panic!("field");
+        };
+        assert_eq!(f.value(), "Xab");
+    }
+
+    #[test]
+    fn painting_a_menu_draws_the_bar_across_the_top() {
+        let mut a = App::new();
+        key(&mut a, Command::MenuBar);
+        a.paint(true);
+        let row: String = (0..80)
+            .map(|c| cp437::decode(a.screen().cell(c, 0).glyph))
+            .collect();
+        assert!(row.contains("File"), "got: {row}");
+        assert!(row.contains("Edit"), "got: {row}");
+        assert!(row.contains("Help"), "got: {row}");
+    }
+
+    #[test]
+    fn painting_a_dropdown_shows_labels_and_their_hotkeys() {
+        let mut a = App::new();
+        key(&mut a, Command::MenuBar);
+        key(
+            &mut a,
+            Command::Move {
+                motion: Motion::Down,
+                extend: false,
+            },
+        );
+        a.paint(true);
+        let all: String = (0..a.screen().rows())
+            .flat_map(|r| (0..80).map(move |c| (c, r)))
+            .map(|(c, r)| cp437::decode(a.screen().cell(c, r).glyph))
+            .collect();
+        assert!(all.contains("Save As..."), "label missing");
+        assert!(all.contains("F10"), "hotkey missing");
+        assert!(all.contains("Exit"), "label missing");
+    }
+
+    #[test]
+    fn painting_a_field_shows_its_title_label_and_value() {
+        let mut a = App::new();
+        a.open_field(
+            Purpose::CreateAtLaunch,
+            "New Document",
+            "Document to be created:",
+            "ch1.txt",
+        );
+        a.paint(true);
+        let all: String = (0..a.screen().rows())
+            .flat_map(|r| (0..80).map(move |c| (c, r)))
+            .map(|(c, r)| cp437::decode(a.screen().cell(c, r).glyph))
+            .collect();
+        assert!(all.contains("New Document"), "title missing");
+        assert!(all.contains("Document to be created:"), "label missing");
+        assert!(all.contains("ch1.txt"), "value missing");
+        assert!(all.contains("Esc"), "the way out is shown");
     }
 }

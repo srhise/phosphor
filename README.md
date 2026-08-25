@@ -26,9 +26,44 @@ Needs a Rust toolchain. Nothing else.
 
 ```sh
 cargo run                 # run it
-cargo test                # 174 tests, all headless
+cargo test                # 228 tests, all headless
 ./tools/package.sh        # build target/Word.app
 ```
+
+## Menu
+
+`Alt-=` drops the WordPerfect menu bar. `←→` walk the bar, `↑↓` the
+items, a letter jumps straight to one, `Enter` fires, `Esc` backs out a
+level at a time. Every item shows its hotkey on the right, so the menu
+teaches the shortcuts and then you stop needing it.
+
+```
+ File  Edit  View  Tools  Help
+┌────────────────────────────┐
+│ Retrieve...       Shft-F10 │
+│ Open (browse)...     Cmd-O │
+│ Save                 Cmd-S │
+│ Save As...             F10 │
+│ New                  Cmd-N │
+├────────────────────────────┤
+│ Exit                    F7 │
+└────────────────────────────┘
+```
+
+## Naming
+
+It opens by asking what you are about to write. `Enter` names the
+document, `Esc` skips straight to an untitled buffer — the prompt never
+stands between you and a sudden idea.
+
+A bare `chapter-one.txt` lands in the base directory (`~/Documents`
+unless `base_dir` says otherwise in `config.toml`); anything containing
+`/` or `~` is read as a path, the way a shell would. Naming at launch
+only sets the destination — the file appears on the first save.
+
+`F10` (Save As) and `Shift-F10` (Retrieve) use the same in-world box.
+`Cmd-O` keeps the native macOS panel, because typing a path is a poor
+way to *browse*.
 
 ## Keys
 
@@ -36,7 +71,10 @@ DOS look, modern muscle memory.
 
 | | |
 |---|---|
-| `Cmd-N` / `Cmd-O` / `Cmd-S` / `Cmd-Shift-S` | New, open, save, save as |
+| `Alt-=` | Menu bar |
+| `Cmd-N` / `Cmd-O` / `Cmd-S` | New, browse-open, save |
+| `F10` / `Shift-F10` | Save As, Retrieve (typed name) |
+| `F7` | Exit |
 | `Cmd-Z` / `Cmd-Shift-Z` | Undo, redo — one word at a time |
 | `Cmd-A` / `Cmd-C` / `Cmd-X` / `Cmd-V` | Select all, copy, cut, paste |
 | `Opt-Arrow` | Move by word |
@@ -51,7 +89,7 @@ DOS look, modern muscle memory.
 
 The mouse places the caret, drags to select, and scrolls. There is no
 permanent F-key hint bar: it would be a second row of chrome you read
-once and then never again. `F1` covers it.
+once and then never again. `F1` and the menu both cover it.
 
 ## Files
 
@@ -114,7 +152,9 @@ application logic tests headless.
 | `src/status.rs` | Page/line/position arithmetic |
 | `src/fileio.rs` | Load, atomic save, normalization |
 | `src/backup.rs` | Timed backups and recovery |
-| `src/app.rs` | State and the command interpreter |
+| `src/menu.rs` | The menu tree and its navigation |
+| `src/input.rs` | The single-line field in the modals |
+| `src/app.rs` | State, focus routing, the command interpreter |
 | `src/main.rs` | Window, events, everything OS-facing |
 
 Two ignored tests dump what the renderer actually produces, which is the

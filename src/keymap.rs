@@ -1,8 +1,8 @@
 //! Translating key events into commands. DOS look, modern muscle memory:
 //! Cmd-S saves, Cmd-Z undoes, the arrows behave as expected.
 
-use winit::event::Modifiers;
-use winit::keyboard::{Key, ModifiersState, NamedKey};
+use winit::event::{KeyEvent, Modifiers};
+use winit::keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Motion {
@@ -27,7 +27,10 @@ pub enum Command {
     Tab,
     Backspace,
     DeleteForward,
-    Move { motion: Motion, extend: bool },
+    Move {
+        motion: Motion,
+        extend: bool,
+    },
     SelectAll,
     Copy,
     Cut,
@@ -39,6 +42,10 @@ pub enum Command {
     Save,
     SaveAs,
     Quit,
+    /// In-world open: type a name rather than browsing.
+    Retrieve,
+    /// Drop the Alt-= menu bar.
+    MenuBar,
     ToggleHelp,
     ToggleEffects,
     ToggleDenseMode,
@@ -47,11 +54,18 @@ pub enum Command {
     Dismiss,
 }
 
-pub fn resolve(key: &Key, mods: &Modifiers) -> Option<Command> {
+pub fn resolve(event: &KeyEvent, mods: &Modifiers) -> Option<Command> {
+    let key = &event.logical_key;
     let m: ModifiersState = mods.state();
     let cmd = m.super_key();
     let shift = m.shift_key();
     let alt = m.alt_key();
+
+    // Alt-= drops the menu bar. Matched on the physical key because
+    // Option-= produces a different character on macOS.
+    if alt && event.physical_key == PhysicalKey::Code(KeyCode::Equal) {
+        return Some(Command::MenuBar);
+    }
 
     // Command-key bindings first: they never insert text.
     if cmd {
@@ -104,6 +118,10 @@ pub fn resolve(key: &Key, mods: &Modifiers) -> Option<Command> {
         Key::Named(NamedKey::Space) => Some(Command::Insert(" ".to_string())),
 
         Key::Named(NamedKey::F1) => Some(Command::ToggleHelp),
+        // WordPerfect's own: F7 leaves, F10 saves, Shift-F10 retrieves.
+        Key::Named(NamedKey::F7) => Some(Command::Quit),
+        Key::Named(NamedKey::F10) if shift => Some(Command::Retrieve),
+        Key::Named(NamedKey::F10) => Some(Command::SaveAs),
         Key::Named(NamedKey::F3) => Some(Command::ToggleEffects),
         Key::Named(NamedKey::F5) => Some(Command::ToggleDenseMode),
         Key::Named(NamedKey::F6) => Some(Command::ShowWordCount),

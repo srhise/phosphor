@@ -15,6 +15,8 @@ pub struct Config {
     pub fullscreen: bool,
     pub window: (u32, u32),
     pub recent: Option<PathBuf>,
+    /// Where bare filenames land. Defaults to ~/Documents.
+    pub base_dir: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -25,6 +27,7 @@ impl Default for Config {
             fullscreen: false,
             window: (1080, 810),
             recent: None,
+            base_dir: None,
         }
     }
 }

@@ -5,7 +5,9 @@ mod cp437;
 mod editor;
 mod fileio;
 mod font;
+mod input;
 mod keymap;
+mod menu;
 mod overlay;
 mod present;
 #[cfg(test)]
@@ -26,6 +28,7 @@ use winit::event::{Modifiers, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Fullscreen, Window, WindowId};
 
+use input::Purpose;
 use keymap::Command;
 use overlay::{Overlay, Prompt};
 use vga::{FB_HEIGHT, FB_WIDTH};
@@ -208,6 +211,55 @@ impl Shell {
         }
     }
 
+    /// A bare name lands in the base directory; anything with a slash or
+    /// a tilde is taken as a path, the way a shell would read it.
+    fn resolve_name(&self, value: &str) -> std::path::PathBuf {
+        let value = value.trim();
+        if let Some(rest) = value.strip_prefix("~/") {
+            if let Some(home) = dirs::home_dir() {
+                return home.join(rest);
+            }
+        }
+        let p = std::path::Path::new(value);
+        if p.is_absolute() || value.contains('/') {
+            return p.to_path_buf();
+        }
+        self.base_dir().join(value)
+    }
+
+    fn base_dir(&self) -> std::path::PathBuf {
+        self.config
+            .base_dir
+            .clone()
+            .or_else(dirs::document_dir)
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+    }
+
+    fn act_on_field(&mut self, purpose: Purpose, value: &str) {
+        let path = self.resolve_name(value);
+        match purpose {
+            Purpose::Retrieve => match fileio::load(&path) {
+                Ok(loaded) => {
+                    self.state.load_text(&loaded.text);
+                    self.state.set_path(path, loaded.crlf);
+                }
+                Err(e) => self.state.set_overlay(Overlay::Message {
+                    title: "Error".to_string(),
+                    body: format!("Cannot retrieve: {e}"),
+                    danger: true,
+                }),
+            },
+            Purpose::SaveAs | Purpose::CreateAtLaunch => {
+                // Naming at launch only sets the destination; the file
+                // appears on the first save, as WordPerfect did.
+                self.state.set_path(path, self.state.crlf());
+                if purpose == Purpose::SaveAs {
+                    self.do_save(false);
+                }
+            }
+        }
+    }
+
     fn do_new(&mut self) {
         self.state = app::App::new();
     }
@@ -317,7 +369,20 @@ impl Shell {
                 return;
             }
             Command::SaveAs => {
-                self.do_save(true);
+                let seed = self
+                    .state
+                    .path()
+                    .and_then(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                self.state
+                    .open_field(Purpose::SaveAs, "Save Document", "Filename:", &seed);
+                self.request_redraw();
+                return;
+            }
+            Command::Retrieve => {
+                self.state
+                    .open_field(Purpose::Retrieve, "Retrieve Document", "Filename:", "");
                 self.request_redraw();
                 return;
             }
@@ -325,6 +390,9 @@ impl Shell {
         };
 
         self.state.apply(cmd, now);
+        if let Some((purpose, value)) = self.state.take_submitted() {
+            self.act_on_field(purpose, &value);
+        }
         if self.state.should_quit {
             // A clean exit leaves no backup behind to recover from.
             backup::clear(self.state.path());
@@ -408,6 +476,15 @@ impl ApplicationHandler for Shell {
             self.sync_settings();
         }
 
+        // Ask what is being written before anything else -- Esc skips
+        // straight to an untitled buffer.
+        self.state.open_field(
+            Purpose::CreateAtLaunch,
+            "New Document",
+            "Document to be created:",
+            "",
+        );
+
         // A backup that outlived its document means the last session did
         // not end cleanly.
         if let Some(b) = backup::pending(None) {
@@ -464,7 +541,7 @@ impl ApplicationHandler for Shell {
                         }
                     }
                 }
-                if let Some(cmd) = keymap::resolve(&event.logical_key, &self.modifiers) {
+                if let Some(cmd) = keymap::resolve(&event, &self.modifiers) {
                     self.dispatch(cmd, event_loop);
                 }
             }

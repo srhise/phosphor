@@ -226,3 +226,41 @@ fn simulate_window() {
     }
     println!("wrote target/sim-*.bmp");
 }
+
+/// `cargo test simulate_menu -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn simulate_menu() {
+    use crate::input::Purpose;
+    use crate::keymap::{Command, Motion};
+
+    let shots: [(&str, fn(&mut App)); 2] = [
+        ("menu", |a: &mut App| {
+            a.apply(Command::MenuBar, 0);
+            a.apply(Command::Move { motion: Motion::Down, extend: false }, 0);
+        }),
+        ("field", |a: &mut App| {
+            a.open_field(
+                Purpose::CreateAtLaunch,
+                "New Document",
+                "Document to be created:",
+                "chapter-one.txt",
+            );
+        }),
+    ];
+
+    for (name, setup) in shots {
+        let mut a = App::new();
+        a.load_text("It was a bright cold day in April, and the clocks were striking thirteen.");
+        setup(&mut a);
+        a.paint(true);
+        let mut fb = vec![0u8; FB_WIDTH * FB_HEIGHT * 4];
+        a.screen().render(&mut fb);
+
+        let (w, h) = (2160, 1620);
+        let full = present(&fb, w, h, true, 0.0);
+        let (small, sw, sh) = downsample2(&full, w, h);
+        crate::vga::preview::write_bmp_rgba(&format!("target/sim-{name}.bmp"), &small, sw, sh);
+    }
+    println!("wrote target/sim-menu.bmp and target/sim-field.bmp");
+}

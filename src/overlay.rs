@@ -1,5 +1,7 @@
 //! Modal boxes drawn in the CP437 double-line style.
 
+use crate::input::Input;
+use crate::menu::MenuState;
 use crate::vga::Screen;
 
 /// CP437 double-line frame pieces.
@@ -21,9 +23,14 @@ pub enum Prompt {
     Recover,
 }
 
+/// What currently has the keyboard. `None` means the document does.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Overlay {
     None,
+    /// The Alt-= bar, with or without a dropdown pulled down.
+    Menu(MenuState),
+    /// A modal text field: naming, saving, retrieving.
+    Field(Input),
     Message {
         title: String,
         body: String,

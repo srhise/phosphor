@@ -56,7 +56,7 @@ const WORDS: [&str; 10] = [
 ];
 
 fn random_command(rng: &mut Rng) -> Command {
-    match rng.below(14) {
+    match rng.below(15) {
         0..=2 => Command::Insert(WORDS[rng.below(WORDS.len() as u64) as usize].to_string()),
         3 => Command::Newline,
         4 => Command::Tab,
@@ -70,6 +70,7 @@ fn random_command(rng: &mut Rng) -> Command {
         10 => Command::Undo,
         11 => Command::Redo,
         12 => Command::ToggleDenseMode,
+        13 => Command::MenuBar,
         _ => Command::ShowWordCount,
     }
 }
@@ -81,6 +82,17 @@ fn random_command_sequences_never_panic() {
         let mut app = App::new();
         for step in 0..120u64 {
             let now = step * 37;
+            // Drop into a modal field now and then, so its key routing
+            // is exercised in the middle of arbitrary sequences.
+            if rng.below(40) == 0 {
+                app.open_field(
+                    crate::input::Purpose::SaveAs,
+                    "Save Document",
+                    "Filename:",
+                    "seed.txt",
+                );
+            }
+            let _ = app.take_submitted();
             match rng.below(10) {
                 // Occasionally poke the mouse paths too.
                 8 => {
