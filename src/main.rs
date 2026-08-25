@@ -1,66 +1,176 @@
+mod app;
 mod cp437;
 mod editor;
 mod fileio;
 mod font;
+mod keymap;
 mod present;
 mod status;
 mod vga;
 mod wrap;
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::WindowEvent;
+use winit::event::{Modifiers, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
-use vga::{Mode, Screen, FB_HEIGHT, FB_WIDTH};
+use keymap::Command;
+use vga::{FB_HEIGHT, FB_WIDTH};
 
-struct App {
+/// VGA text mode was shown on a 4:3 monitor; the same letterboxing the
+/// shader applies has to be undone to map clicks back to cells.
+const DISPLAY_ASPECT: f64 = 4.0 / 3.0;
+
+/// The cursor blinks at 2Hz, which is also the only thing that wakes an
+/// otherwise idle window.
+const BLINK_MS: u64 = 250;
+
+/// The window and everything the OS owns. All document state lives in
+/// `app::App`; this shell only translates events and draws.
+struct Shell {
     window: Option<Arc<Window>>,
     pixels: Option<Pixels<'static>>,
     present: Option<present::Present>,
-    screen: Screen,
+    state: app::App,
+    modifiers: Modifiers,
+    clipboard: Option<arboard::Clipboard>,
+    mouse_cell: (usize, usize),
+    mouse_down: bool,
+    start: Instant,
 }
 
-impl App {
+impl Shell {
     fn new() -> Self {
-        let mut screen = Screen::new(Mode::Text80x25);
-        screen.clear(7, 1);
-        // Proof of life; Task 10 replaces this with the document.
-        screen.put_str(wrap::TEXT_LEFT, 2, "The quick brown fox jumped over", 7, 1);
-        screen.put_str(wrap::TEXT_LEFT, 3, "the lazy dog.", 7, 1);
-        screen.put_str(0, 24, "(UNTITLED)", 15, 1);
-        screen.put_str(51, 24, "Doc 1   Pg 1   Ln 1\"   Pos 1\"", 15, 1);
-        Self { window: None, pixels: None, present: None, screen }
+        Self {
+            window: None,
+            pixels: None,
+            present: None,
+            state: app::App::new(),
+            modifiers: Modifiers::default(),
+            clipboard: None,
+            mouse_cell: (0, 0),
+            mouse_down: false,
+            start: Instant::now(),
+        }
+    }
+
+    fn now_ms(&self) -> u64 {
+        self.start.elapsed().as_millis() as u64
+    }
+
+    fn request_redraw(&self) {
+        if let Some(w) = self.window.as_ref() {
+            w.request_redraw();
+        }
+    }
+
+    /// Physical window position -> grid cell, undoing the letterbox.
+    fn cell_at(&self, x: f64, y: f64) -> Option<(usize, usize)> {
+        let window = self.window.as_ref()?;
+        let size = window.inner_size();
+        let (w, h) = (size.width.max(1) as f64, size.height.max(1) as f64);
+
+        let (draw_w, draw_h) = if w / h > DISPLAY_ASPECT {
+            (h * DISPLAY_ASPECT, h)
+        } else {
+            (w, w / DISPLAY_ASPECT)
+        };
+        let ox = (w - draw_w) / 2.0;
+        let oy = (h - draw_h) / 2.0;
+
+        let u = (x - ox) / draw_w;
+        let v = (y - oy) / draw_h;
+        if !(0.0..1.0).contains(&u) || !(0.0..1.0).contains(&v) {
+            return None;
+        }
+
+        let rows = self.state.screen().rows();
+        Some((
+            ((u * 80.0) as usize).min(79),
+            ((v * rows as f64) as usize).min(rows - 1),
+        ))
+    }
+
+    fn copy_to_clipboard(&mut self) {
+        let text = self.state.editor().selected_text();
+        if text.is_empty() {
+            return;
+        }
+        if self.clipboard.is_none() {
+            self.clipboard = arboard::Clipboard::new().ok();
+        }
+        if let Some(c) = self.clipboard.as_mut() {
+            let _ = c.set_text(text);
+        }
+    }
+
+    fn clipboard_text(&mut self) -> Option<String> {
+        if self.clipboard.is_none() {
+            self.clipboard = arboard::Clipboard::new().ok();
+        }
+        self.clipboard.as_mut()?.get_text().ok()
+    }
+
+    /// Commands that need the OS are handled here; the rest go to state.
+    fn dispatch(&mut self, cmd: Command, event_loop: &ActiveEventLoop) {
+        let now = self.now_ms();
+        let cmd = match cmd {
+            Command::Copy => {
+                self.copy_to_clipboard();
+                return;
+            }
+            Command::Cut => {
+                self.copy_to_clipboard();
+                Command::Backspace
+            }
+            Command::Paste => match self.clipboard_text() {
+                Some(t) if !t.is_empty() => Command::Insert(t),
+                _ => return,
+            },
+            other => other,
+        };
+
+        self.state.apply(cmd, now);
+        if self.state.should_quit {
+            event_loop.exit();
+            return;
+        }
+        self.request_redraw();
     }
 
     fn redraw(&mut self) {
+        let elapsed = self.now_ms();
+        // 2Hz: on for 250ms, off for 250ms.
+        let blink_on = (elapsed / BLINK_MS) % 2 == 0;
+        self.state.paint(blink_on);
+
         let (Some(pixels), Some(present), Some(window)) =
             (self.pixels.as_mut(), self.present.as_ref(), self.window.as_ref())
         else {
             return;
         };
-        self.screen.render(pixels.frame_mut());
+        self.state.screen().render(pixels.frame_mut());
         let size = window.inner_size();
         let params = present::Params {
             surface: (size.width, size.height),
-            time: 0.0,
+            time: elapsed as f32 / 1000.0,
             effects: false,
         };
-        let result = pixels.render_with(|encoder, target, context| {
+        if let Err(e) = pixels.render_with(|encoder, target, context| {
             present.render(encoder, target, context, &params);
             Ok(())
-        });
-        if let Err(e) = result {
+        }) {
             eprintln!("render failed: {e}");
         }
     }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler for Shell {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -98,19 +208,71 @@ impl ApplicationHandler for App {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
+
             WindowEvent::Resized(size) => {
                 if let Some(pixels) = self.pixels.as_mut() {
                     if let Err(e) = pixels.resize_surface(size.width.max(1), size.height.max(1)) {
                         eprintln!("resize failed: {e}");
                     }
                 }
-                if let Some(w) = self.window.as_ref() {
-                    w.request_redraw();
+                self.request_redraw();
+            }
+
+            WindowEvent::ModifiersChanged(m) => self.modifiers = m,
+
+            WindowEvent::KeyboardInput { event, .. } => {
+                if !event.state.is_pressed() {
+                    return;
+                }
+                if let Some(cmd) = keymap::resolve(&event.logical_key, &self.modifiers) {
+                    self.dispatch(cmd, event_loop);
                 }
             }
+
+            WindowEvent::CursorMoved { position, .. } => {
+                if let Some(cell) = self.cell_at(position.x, position.y) {
+                    self.mouse_cell = cell;
+                    if self.mouse_down {
+                        self.state.click(cell.0, cell.1, true);
+                        self.request_redraw();
+                    }
+                }
+            }
+
+            WindowEvent::MouseInput { state, button, .. } => {
+                if button == MouseButton::Left {
+                    self.mouse_down = state.is_pressed();
+                    if self.mouse_down {
+                        let (c, r) = self.mouse_cell;
+                        self.state.click(c, r, false);
+                        self.request_redraw();
+                    }
+                }
+            }
+
+            WindowEvent::MouseWheel { delta, .. } => {
+                let lines = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => -y as i32,
+                    MouseScrollDelta::PixelDelta(p) => -(p.y / 16.0) as i32,
+                };
+                if lines != 0 {
+                    self.state.scroll(lines);
+                    self.request_redraw();
+                }
+            }
+
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {}
         }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Wake only often enough to blink the cursor: an idle window
+        // costs essentially nothing.
+        event_loop.set_control_flow(ControlFlow::WaitUntil(
+            Instant::now() + Duration::from_millis(BLINK_MS),
+        ));
+        self.request_redraw();
     }
 }
 
@@ -122,10 +284,9 @@ fn main() {
             return;
         }
     };
-    // No animation loop: we draw when something happens.
     event_loop.set_control_flow(ControlFlow::Wait);
-    let mut app = App::new();
-    if let Err(e) = event_loop.run_app(&mut app) {
+    let mut shell = Shell::new();
+    if let Err(e) = event_loop.run_app(&mut shell) {
         eprintln!("exited with error: {e}");
     }
 }
