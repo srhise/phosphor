@@ -68,11 +68,15 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VertexOutput {
 
 // Source framebuffer is 720x400; scanlines run at that row frequency.
 const SOURCE_HEIGHT: f32 = 400.0;
-const CURVATURE: f32 = 0.018;
+// Tube curvature. 0.0 is a flat screen with square 90-degree corners;
+// raise it (0.015 to 0.03) to bow the edges like a real tube.
+const CURVATURE: f32 = 0.0;
 const SCANLINE_DEPTH: f32 = 0.18;
 const BLOOM_RADIUS: f32 = 0.0016;
 const BLOOM_STRENGTH: f32 = 0.38;
-const VIGNETTE_STRENGTH: f32 = 0.28;
+// Kept gentle: on a flat square screen a strong radial falloff reads
+// as a smudge rather than as a tube.
+const VIGNETTE_STRENGTH: f32 = 0.12;
 
 // Pull the corners in slightly, as a curved tube does.
 fn barrel(uv: vec2<f32>) -> vec2<f32> {
@@ -87,10 +91,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return textureSample(tex, samp, sharp_uv(in.uv));
     }
 
-    let uv = barrel(in.uv);
-    // Past the edge of the tube there is no picture.
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    var uv = in.uv;
+    if (CURVATURE > 0.0) {
+        uv = barrel(in.uv);
+        // Past the edge of a curved tube there is no picture.
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+            return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        }
     }
 
     var color = textureSample(tex, samp, sharp_uv(uv)).rgb;

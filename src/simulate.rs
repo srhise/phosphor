@@ -15,11 +15,11 @@ const TEX_H: f32 = FB_HEIGHT as f32;
 const DISPLAY_ASPECT: f32 = 4.0 / 3.0;
 
 // Must match shaders/crt.wgsl.
-const CURVATURE: f32 = 0.018;
+const CURVATURE: f32 = 0.0;
 const SCANLINE_DEPTH: f32 = 0.18;
 const BLOOM_RADIUS: f32 = 0.0016;
 const BLOOM_STRENGTH: f32 = 0.38;
-const VIGNETTE_STRENGTH: f32 = 0.28;
+const VIGNETTE_STRENGTH: f32 = 0.12;
 
 fn letterbox(w: f32, h: f32) -> [f32; 2] {
     let a = w / h;
@@ -115,7 +115,7 @@ pub fn present(fb: &[u8], w: usize, h: usize, effects: bool, time: f32) -> Vec<u
             if !effects {
                 color = sample_bilinear(fb, sharp_uv(uv, draw));
             } else {
-                let b = barrel(uv);
+                let b = if CURVATURE > 0.0 { barrel(uv) } else { uv };
                 if b[0] < 0.0 || b[0] > 1.0 || b[1] < 0.0 || b[1] > 1.0 {
                     continue;
                 }
