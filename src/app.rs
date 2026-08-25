@@ -24,6 +24,8 @@ const STATUS_MARGIN: usize = 2;
 /// Shown by F1. The keys stay discoverable without a permanent hint bar
 /// eating a row of the writing surface forever.
 const HELP_TEXT: &str = "\
+F1 or Esc  Menu bar        Alt-=  Menu bar
+
 Cmd-N  New            Cmd-Z  Undo
 Cmd-O  Open           Cmd-Shift-Z  Redo
 Cmd-S  Save           Cmd-A  Select all
@@ -33,6 +35,8 @@ Cmd-Q  Quit
 Opt-Arrow  By word    Cmd-Arrow  Line or document
 F3  CRT effects       F5  80x25 / 80x50
 F6  Word count        F11  Fullscreen
+F7  Exit              F10  Save As
+Shft-F10  Retrieve    Shft-F1  This help
 
 Esc  Close this";
 
@@ -431,7 +435,9 @@ impl App {
                     self.after_edit();
                 }
             }
-            Command::MenuBar => self.open_menu(),
+            // Nothing to dismiss when the document has focus, so Esc
+            // becomes the always-available way to reach the menu.
+            Command::MenuBar | Command::Dismiss => self.open_menu(),
             Command::Quit => {
                 if self.editor.is_dirty() {
                     self.confirm(Prompt::QuitUnsaved, "Save changes to this document? (Y/N)");
@@ -461,8 +467,7 @@ impl App {
             | Command::Open
             | Command::Retrieve
             | Command::Save
-            | Command::SaveAs
-            | Command::Dismiss => {}
+            | Command::SaveAs => {}
         }
     }
 
@@ -1523,5 +1528,73 @@ the wall.",
         assert!(all.contains("Document to be created:"), "label missing");
         assert!(all.contains("ch1.txt"), "value missing");
         assert!(all.contains("Esc"), "the way out is shown");
+    }
+
+    #[test]
+    fn escape_opens_the_menu_when_the_document_has_focus() {
+        let mut a = app_with("some words");
+        key(&mut a, Command::Dismiss);
+        assert!(
+            matches!(a.overlay(), Overlay::Menu(_)),
+            "Esc has nothing to dismiss, so it offers the menu"
+        );
+    }
+
+    #[test]
+    fn escape_still_closes_the_menu_rather_than_reopening_it() {
+        let mut a = App::new();
+        key(&mut a, Command::Dismiss); // opens
+        key(&mut a, Command::Dismiss); // closes
+        assert!(matches!(a.overlay(), Overlay::None), "not a loop");
+    }
+
+    #[test]
+    fn escape_inside_a_field_cancels_instead_of_opening_the_menu() {
+        let mut a = App::new();
+        a.open_field(Purpose::SaveAs, "Save Document", "Filename:", "x");
+        key(&mut a, Command::Dismiss);
+        assert!(
+            matches!(a.overlay(), Overlay::None),
+            "cancelled, not a menu"
+        );
+        assert_eq!(a.take_submitted(), None);
+    }
+
+    #[test]
+    fn escape_inside_a_confirmation_dismisses_it() {
+        let mut a = App::new();
+        key(&mut a, Command::Insert("x".to_string()));
+        key(&mut a, Command::Quit);
+        key(&mut a, Command::Dismiss);
+        assert!(matches!(a.overlay(), Overlay::None));
+        assert!(!a.should_quit);
+    }
+
+    #[test]
+    fn escape_does_not_disturb_the_document() {
+        let mut a = app_with("hello");
+        key(
+            &mut a,
+            Command::Move {
+                motion: Motion::DocEnd,
+                extend: false,
+            },
+        );
+        key(&mut a, Command::Dismiss);
+        key(&mut a, Command::Dismiss);
+        assert_eq!(a.editor().to_string(), "hello");
+        assert_eq!(a.editor().cursor(), 5, "and the caret stays put");
+    }
+
+    #[test]
+    fn the_help_overlay_names_both_ways_into_the_menu() {
+        let mut a = App::new();
+        key(&mut a, Command::ToggleHelp);
+        a.paint(true);
+        let all: String = (0..a.screen().rows())
+            .flat_map(|r| (0..80).map(move |c| (c, r)))
+            .map(|(c, r)| cp437::decode(a.screen().cell(c, r).glyph))
+            .collect();
+        assert!(all.contains("Menu bar"), "help should name the menu key");
     }
 }

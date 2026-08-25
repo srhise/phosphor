@@ -32,7 +32,9 @@ cargo test                # 228 tests, all headless
 
 ## Menu
 
-`Alt-=` drops the WordPerfect menu bar. `←→` walk the bar, `↑↓` the
+**`F1` or `Esc`** drops the menu bar (`Alt-=` too, WordPerfect's own).
+Esc has nothing else to do while you are writing, and unlike an F-key it
+arrives whatever your keyboard is set to. `←→` walk the bar, `↑↓` the
 items, a letter jumps straight to one, `Enter` fires, `Esc` backs out a
 level at a time. Every item shows its hotkey on the right, so the menu
 teaches the shortcuts and then you stop needing it.
@@ -71,7 +73,8 @@ DOS look, modern muscle memory.
 
 | | |
 |---|---|
-| `Alt-=` | Menu bar |
+| `F1` or `Esc` (or `Alt-=`) | Menu bar |
+| `Shift-F1` | Help |
 | `Cmd-N` / `Cmd-O` / `Cmd-S` | New, browse-open, save |
 | `F10` / `Shift-F10` | Save As, Retrieve (typed name) |
 | `F7` | Exit |
@@ -80,7 +83,6 @@ DOS look, modern muscle memory.
 | `Opt-Arrow` | Move by word |
 | `Cmd-Arrow` | Line start/end, document start/end |
 | `Cmd-Q` | Quit |
-| `F1` | Help |
 | `F3` | CRT effects on/off |
 | `F5` | 80×25 / 80×50 |
 | `F6` | Word count |
@@ -89,7 +91,7 @@ DOS look, modern muscle memory.
 
 The mouse places the caret, drags to select, and scrolls. There is no
 permanent F-key hint bar: it would be a second row of chrome you read
-once and then never again. `F1` and the menu both cover it.
+once and then never again. `Shift-F1` and the menu both cover it.
 
 ## Files
 

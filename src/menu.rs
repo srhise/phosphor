@@ -63,7 +63,7 @@ static VIEW_ITEMS: &[Item] = &[
 
 static TOOLS_ITEMS: &[Item] = &[item("Word Count", "F6", Command::ShowWordCount)];
 
-static HELP_ITEMS: &[Item] = &[item("Help", "F1", Command::ToggleHelp)];
+static HELP_ITEMS: &[Item] = &[item("Help", "Shft-F1", Command::ToggleHelp)];
 
 pub static MENUS: &[Menu] = &[
     Menu {

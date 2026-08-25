@@ -234,10 +234,17 @@ fn simulate_menu() {
     use crate::input::Purpose;
     use crate::keymap::{Command, Motion};
 
-    let shots: [(&str, fn(&mut App)); 2] = [
+    type Setup = fn(&mut App);
+    let shots: [(&str, Setup); 2] = [
         ("menu", |a: &mut App| {
             a.apply(Command::MenuBar, 0);
-            a.apply(Command::Move { motion: Motion::Down, extend: false }, 0);
+            a.apply(
+                Command::Move {
+                    motion: Motion::Down,
+                    extend: false,
+                },
+                0,
+            );
         }),
         ("field", |a: &mut App| {
             a.open_field(

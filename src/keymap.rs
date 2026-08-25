@@ -117,7 +117,10 @@ pub fn resolve(event: &KeyEvent, mods: &Modifiers) -> Option<Command> {
         Key::Named(NamedKey::Escape) => Some(Command::Dismiss),
         Key::Named(NamedKey::Space) => Some(Command::Insert(" ".to_string())),
 
-        Key::Named(NamedKey::F1) => Some(Command::ToggleHelp),
+        // F1 is the menu; Help moves one key over. Both are also in
+        // the Help menu, so neither is the only way in.
+        Key::Named(NamedKey::F1) if shift => Some(Command::ToggleHelp),
+        Key::Named(NamedKey::F1) => Some(Command::MenuBar),
         // WordPerfect's own: F7 leaves, F10 saves, Shift-F10 retrieves.
         Key::Named(NamedKey::F7) => Some(Command::Quit),
         Key::Named(NamedKey::F10) if shift => Some(Command::Retrieve),
