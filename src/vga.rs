@@ -285,3 +285,73 @@ mod tests {
         assert_eq!(&fb[i..i + 3], &PALETTE[15][..], "cell 1 starts at x=9");
     }
 }
+
+/// Visual check of the rasterizer: writes the framebuffer as a BMP.
+/// Not part of the suite; run deliberately with
+/// `cargo test dump_preview -- --ignored`.
+#[cfg(test)]
+mod preview {
+    use super::*;
+    use std::io::Write;
+
+    fn write_bmp(path: &str, fb: &[u8]) {
+        let (w, h) = (FB_WIDTH, FB_HEIGHT);
+        let row = w * 3; // 2160 bytes, already 4-byte aligned
+        let pixels = row * h;
+        let mut out = Vec::with_capacity(54 + pixels);
+        out.extend_from_slice(b"BM");
+        out.extend_from_slice(&((54 + pixels) as u32).to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&54u32.to_le_bytes());
+        out.extend_from_slice(&40u32.to_le_bytes());
+        out.extend_from_slice(&(w as i32).to_le_bytes());
+        out.extend_from_slice(&(h as i32).to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&24u16.to_le_bytes());
+        for _ in 0..6 {
+            out.extend_from_slice(&0u32.to_le_bytes());
+        }
+        // BMP rows run bottom-up and store BGR.
+        for y in (0..h).rev() {
+            for x in 0..w {
+                let i = (y * w + x) * 4;
+                out.push(fb[i + 2]);
+                out.push(fb[i + 1]);
+                out.push(fb[i]);
+            }
+        }
+        let mut f = std::fs::File::create(path).expect("create bmp");
+        f.write_all(&out).expect("write bmp");
+    }
+
+    #[test]
+    #[ignore]
+    fn dump_preview() {
+        let mut s = Screen::new(Mode::Text80x25);
+        s.clear(7, 1);
+        let left = crate::wrap::TEXT_LEFT;
+        s.put_str(left, 1, "The quick brown fox jumped over the lazy dog.", 7, 1);
+        s.put_str(left, 2, "Pack my box with five dozen liquor jugs.", 7, 1);
+        s.put_str(left, 4, "ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789", 7, 1);
+        s.put_str(left, 5, "abcdefghijklmnopqrstuvwxyz .,;:!?'\"-()", 7, 1);
+        // Box drawing, to prove the 9th-column rule connects the rules.
+        s.put_str(left, 7, "\u{2554}\u{2550}\u{2550}\u{2550} Reveal Codes \u{2550}\u{2550}\u{2550}\u{2557}", 15, 1);
+        s.put_str(left, 8, "\u{2551}  bold  italic  under  \u{2551}", 15, 1);
+        s.put_str(left, 9, "\u{255A}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{2550}\u{255D}", 15, 1);
+        // A blinking block cursor, drawn as inverse video.
+        s.put_str(left, 11, "typing here ", 7, 1);
+        s.invert(left + 12, 11);
+        // Status line.
+        for c in 0..80 {
+            s.set(c, 24, 0x20, 15, 1);
+        }
+        s.put_str(0, 24, "C:\\USERS\\SRHISE\\DOCUMENTS\\CH1.TXT *", 15, 1);
+        let right = "Doc 1   Pg 1   Ln 1.17\"   Pos 1.5\"";
+        s.put_str(80 - right.len(), 24, right, 15, 1);
+
+        let mut fb = vec![0u8; FB_WIDTH * FB_HEIGHT * 4];
+        s.render(&mut fb);
+        write_bmp("target/preview.bmp", &fb);
+        println!("wrote target/preview.bmp");
+    }
+}
