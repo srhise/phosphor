@@ -579,4 +579,37 @@ mod tests {
         a.scroll(100);
         assert_eq!(a.viewport_top(), 0, "a short document has nowhere to go");
     }
+
+    /// Visual check of the whole paint path. Run deliberately with
+    /// `cargo test dump_app_preview -- --ignored`.
+    #[test]
+    #[ignore]
+    fn dump_app_preview() {
+        use crate::vga::{FB_HEIGHT, FB_WIDTH};
+
+        let mut a = App::new();
+        a.set_path(std::path::PathBuf::from("/Users/srhise/Documents/chapter-one.txt"), false);
+        for (i, word) in "It was a bright cold day in April, and the clocks were \
+striking thirteen. Winston Smith, his chin nuzzled into his breast in an effort \
+to escape the vile wind, slipped quickly through the glass doors of Victory \
+Mansions, though not quickly enough to prevent a swirl of gritty dust from \
+entering along with him."
+            .split(' ')
+            .enumerate()
+        {
+            if i > 0 {
+                a.apply(Command::Insert(" ".to_string()), i as u64 * 10);
+            }
+            a.apply(Command::Insert(word.to_string()), i as u64 * 10);
+        }
+        a.apply(Command::Newline, 9_000);
+        a.apply(Command::Newline, 9_000);
+        a.apply(Command::Insert("The hallway smelt of boiled cabbage and old rag mats.".to_string()), 9_100);
+
+        a.paint(true);
+        let mut fb = vec![0u8; FB_WIDTH * FB_HEIGHT * 4];
+        a.screen().render(&mut fb);
+        crate::vga::preview::write_bmp("target/app-preview.bmp", &fb);
+        println!("wrote target/app-preview.bmp");
+    }
 }

@@ -290,11 +290,11 @@ mod tests {
 /// Not part of the suite; run deliberately with
 /// `cargo test dump_preview -- --ignored`.
 #[cfg(test)]
-mod preview {
+pub(crate) mod preview {
     use super::*;
     use std::io::Write;
 
-    fn write_bmp(path: &str, fb: &[u8]) {
+    pub(crate) fn write_bmp(path: &str, fb: &[u8]) {
         let (w, h) = (FB_WIDTH, FB_HEIGHT);
         let row = w * 3; // 2160 bytes, already 4-byte aligned
         let pixels = row * h;
