@@ -19,4 +19,4 @@ tempfile = "3"
 [profile.release]
 opt-level = 3
 lto = true
-strip = true
+strip = "debuginfo"  # keep symbol names so crash reports are readable

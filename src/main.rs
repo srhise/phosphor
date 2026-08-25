@@ -9,6 +9,8 @@ mod keymap;
 mod overlay;
 mod present;
 mod status;
+#[cfg(test)]
+mod stress;
 mod vga;
 mod wrap;
 
@@ -513,7 +515,24 @@ impl ApplicationHandler for Shell {
     }
 }
 
+/// Rust panics cannot unwind across the Objective-C event dispatch that
+/// calls us, so they abort with no message anywhere. Record them first.
+fn install_panic_logger() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if let Some(dir) = dirs::data_dir() {
+            let dir = dir.join("word");
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = std::fs::write(dir.join("crash.log"), format!("{info}\n"));
+        }
+        eprintln!("word panicked: {info}");
+        default(info);
+    }));
+}
+
 fn main() {
+    install_panic_logger();
+
     let event_loop = match EventLoop::new() {
         Ok(el) => el,
         Err(e) => {

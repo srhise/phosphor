@@ -90,12 +90,19 @@ impl Editor {
     }
 
     /// The selection as `(low, high)`, or `None` when nothing is selected.
+    ///
+    /// Both ends are clamped to the buffer: the anchor is a bare offset,
+    /// and an edit can shrink the text out from under it. Clamping here
+    /// makes an out-of-range selection unrepresentable no matter which
+    /// path left the anchor behind.
     pub fn selection(&self) -> Option<(usize, usize)> {
-        let a = self.anchor?;
-        if a == self.cursor {
+        let len = self.text.len();
+        let anchor = self.anchor?.min(len);
+        let cursor = self.cursor.min(len);
+        if anchor == cursor {
             return None;
         }
-        Some((a.min(self.cursor), a.max(self.cursor)))
+        Some((anchor.min(cursor), anchor.max(cursor)))
     }
 
     pub fn selected_text(&self) -> String {
@@ -223,6 +230,7 @@ impl Editor {
         let removed = vec![self.text[start]];
         self.text.remove(start);
         self.cursor = start;
+        self.anchor = None; // an edit collapses any selection
         self.record(
             UndoEntry {
                 start,
@@ -249,6 +257,7 @@ impl Editor {
         let start = self.cursor;
         let removed = vec![self.text[start]];
         self.text.remove(start);
+        self.anchor = None; // an edit collapses any selection
         self.record(
             UndoEntry {
                 start,
@@ -750,5 +759,58 @@ mod tests {
         assert!(e.is_dirty());
         e.undo();
         assert!(!e.is_dirty(), "back where we started, so nothing to save");
+    }
+
+    // --- regression: a selection anchor left dangling past the buffer end ---
+
+    #[test]
+    fn backspace_does_not_leave_a_stale_selection_anchor() {
+        let mut e = Editor::from_str("ab");
+        e.set_cursor(2, false);
+        e.set_cursor(2, true); // anchor at 2, collapsed
+        e.backspace(T0); // buffer is now 1 long, anchor still says 2
+        assert_eq!(e.selection(), None, "an edit collapses the selection");
+        assert_eq!(e.selected_text(), "", "must not slice past the end");
+    }
+
+    #[test]
+    fn delete_forward_does_not_leave_a_stale_selection_anchor() {
+        let mut e = Editor::from_str("ab");
+        e.set_cursor(2, false);
+        e.set_cursor(2, true);
+        e.set_cursor(0, false);
+        e.set_cursor(0, true);
+        e.delete_forward(T0);
+        assert_eq!(e.selection(), None);
+        assert_eq!(e.selected_text(), "");
+    }
+
+    #[test]
+    fn inserting_after_a_shrink_does_not_panic() {
+        let mut e = Editor::from_str("ab");
+        e.set_cursor(2, false);
+        e.set_cursor(2, true);
+        e.backspace(T0);
+        e.insert("z", T0 + 600); // used to slice a stale selection range
+        assert_eq!(e.to_string(), "az");
+    }
+
+    #[test]
+    fn a_selection_can_never_run_past_the_buffer() {
+        // The invariant itself, independent of which path broke it.
+        let mut e = Editor::from_str("abcdef");
+        e.set_cursor(6, false);
+        e.set_cursor(6, true);
+        e.backspace(T0);
+        e.backspace(T0 + 10);
+        e.backspace(T0 + 20);
+        if let Some((lo, hi)) = e.selection() {
+            assert!(
+                hi <= e.len(),
+                "selection {lo}..{hi} exceeds len {}",
+                e.len()
+            );
+        }
+        assert_eq!(e.selected_text(), "");
     }
 }
