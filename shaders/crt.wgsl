@@ -4,10 +4,36 @@
 struct Uniforms {
     // Clip-space scale that letterboxes the 4:3 image inside the surface.
     scale: vec2<f32>,
+    // Size of the drawn rectangle in device pixels, for sharp sampling.
+    draw_size: vec2<f32>,
     time: f32,
     // 0.0 = plain, 1.0 = CRT effects.
     effects: f32,
+    _pad: vec2<f32>,
 };
+
+const TEX_SIZE: vec2<f32> = vec2<f32>(720.0, 400.0);
+
+// Sharp bilinear sampling.
+//
+// The framebuffer is almost never scaled by a whole number, and plain
+// nearest-neighbour at a fractional scale gives identical glyph strokes
+// different widths -- some source columns land on two output pixels, some
+// on one. This keeps each texel's interior flat and confines the blend to
+// a one-device-pixel band at texel edges: as crisp as nearest, but every
+// stroke the same weight at any zoom.
+fn sharp_uv(uv: vec2<f32>) -> vec2<f32> {
+    let texel = uv * TEX_SIZE;
+    let texel_floored = floor(texel);
+    let s = fract(texel);
+
+    let scale = max(u.draw_size / TEX_SIZE, vec2<f32>(1.0, 1.0));
+    let region_range = 0.5 - 0.5 / scale;
+
+    let center_dist = s - 0.5;
+    let f = (center_dist - clamp(center_dist, -region_range, region_range)) * scale + 0.5;
+    return (texel_floored + f) / TEX_SIZE;
+}
 
 @group(0) @binding(0) var tex: texture_2d<f32>;
 @group(0) @binding(1) var samp: sampler;
@@ -58,7 +84,7 @@ fn barrel(uv: vec2<f32>) -> vec2<f32> {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (u.effects < 0.5) {
-        return textureSample(tex, samp, in.uv);
+        return textureSample(tex, samp, sharp_uv(in.uv));
     }
 
     let uv = barrel(in.uv);
@@ -67,7 +93,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(0.0, 0.0, 0.0, 1.0);
     }
 
-    var color = textureSample(tex, samp, uv).rgb;
+    var color = textureSample(tex, samp, sharp_uv(uv)).rgb;
 
     // Phosphor bloom: a small cross-shaped tap set, so bright text glows
     // into the dark around it the way it did on a real tube.

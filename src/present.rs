@@ -11,8 +11,12 @@ const DISPLAY_ASPECT: f32 = 4.0 / 3.0;
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniforms {
     scale: [f32; 2],
+    /// Drawn rectangle in device pixels, so the shader knows the zoom.
+    /// Named `draw_size` because `target` is reserved in WGSL.
+    draw_size: [f32; 2],
     time: f32,
     effects: f32,
+    _pad: [f32; 2],
 }
 
 pub struct Params {
@@ -39,12 +43,15 @@ impl Present {
             .texture()
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Nearest neighbour: this is a bitmap font and any filtering would
-        // blur the very pixels we are trying to show.
+        // Linear, but the shader pre-shapes the UVs so interpolation only
+        // happens in a one-pixel band at texel edges (see `sharp_uv`).
+        // Plain nearest gave uneven stroke weights at fractional zoom.
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("crt-sampler"),
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
             ..Default::default()
         });
 
@@ -52,8 +59,10 @@ impl Present {
             label: Some("crt-uniforms"),
             contents: bytemuck::bytes_of(&Uniforms {
                 scale: [1.0, 1.0],
+                draw_size: [720.0, 400.0],
                 time: 0.0,
                 effects: 0.0,
+                _pad: [0.0, 0.0],
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -173,10 +182,18 @@ impl Present {
         context.queue.write_buffer(
             &self.uniform_buffer,
             0,
-            bytemuck::bytes_of(&Uniforms {
-                scale: Self::letterbox(params.surface),
-                time: params.time,
-                effects: if params.effects { 1.0 } else { 0.0 },
+            bytemuck::bytes_of(&{
+                let scale = Self::letterbox(params.surface);
+                Uniforms {
+                    scale,
+                    draw_size: [
+                        params.surface.0 as f32 * scale[0],
+                        params.surface.1 as f32 * scale[1],
+                    ],
+                    time: params.time,
+                    effects: if params.effects { 1.0 } else { 0.0 },
+                    _pad: [0.0, 0.0],
+                }
             }),
         );
 

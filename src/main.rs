@@ -520,10 +520,15 @@ impl ApplicationHandler for Shell {
 fn install_panic_logger() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        // A panic here aborts, and the abort panics again on the way out.
+        // Only the first one explains anything, so never overwrite it.
         if let Some(dir) = dirs::data_dir() {
             let dir = dir.join("word");
             let _ = std::fs::create_dir_all(&dir);
-            let _ = std::fs::write(dir.join("crash.log"), format!("{info}\n"));
+            let log = dir.join("crash.log");
+            if !log.exists() {
+                let _ = std::fs::write(&log, format!("{info}\n"));
+            }
         }
         eprintln!("word panicked: {info}");
         default(info);
