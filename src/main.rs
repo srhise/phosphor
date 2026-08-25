@@ -167,6 +167,7 @@ impl Shell {
             Err(e) => self.state.set_overlay(Overlay::Message {
                 title: "Error".to_string(),
                 body: format!("Cannot open file: {e}"),
+                danger: true,
             }),
         }
     }
@@ -196,6 +197,7 @@ impl Shell {
                 self.state.set_overlay(Overlay::Message {
                     title: "Error".to_string(),
                     body: format!("Cannot save: {e}"),
+                    danger: true,
                 });
                 false
             }

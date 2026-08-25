@@ -314,6 +314,7 @@ impl App {
                 self.overlay = Overlay::Message {
                     title: "Help".to_string(),
                     body: HELP_TEXT.to_string(),
+                    danger: false,
                 };
             }
             Command::ShowWordCount => self.word_count_until = now_ms + 3_000,
@@ -400,8 +401,13 @@ impl App {
     fn paint_overlay(&mut self) {
         match self.overlay.clone() {
             Overlay::None => {}
-            Overlay::Message { title, body } => {
-                overlay::draw_centered(&mut self.screen, &title, &body, 15, 4);
+            Overlay::Message {
+                title,
+                body,
+                danger,
+            } => {
+                let bg = if danger { 4 } else { BG };
+                overlay::draw_centered(&mut self.screen, &title, &body, 15, bg);
             }
             Overlay::Confirm { body, .. } => {
                 overlay::draw_centered(&mut self.screen, "", &body, 15, 1);
@@ -965,6 +971,7 @@ entering along with him."
         a.set_overlay(Overlay::Message {
             title: "Error".to_string(),
             body: "File not found".to_string(),
+            danger: true,
         });
         a.paint(true);
         let has_corner =
@@ -1055,5 +1062,31 @@ entering along with him."
         assert!(!a.fullscreen());
         a.apply(Command::ToggleFullscreen, T);
         assert!(a.fullscreen());
+    }
+
+    /// Visual check of the help overlay. Run with
+    /// `cargo test dump_help_preview -- --ignored`.
+    #[test]
+    #[ignore]
+    fn dump_help_preview() {
+        use crate::vga::{FB_HEIGHT, FB_WIDTH};
+
+        let mut a = App::new();
+        a.set_path(
+            std::path::PathBuf::from("/Users/srhise/Documents/chapter-one.txt"),
+            false,
+        );
+        a.load_text(
+            "The hallway smelt of boiled cabbage and old rag mats. At one end \
+of it a coloured poster, too large for indoor display, had been tacked to \
+the wall.",
+        );
+        a.apply(Command::ToggleHelp, 0);
+        a.paint(true);
+
+        let mut fb = vec![0u8; FB_WIDTH * FB_HEIGHT * 4];
+        a.screen().render(&mut fb);
+        crate::vga::preview::write_bmp("target/help-preview.bmp", &fb);
+        println!("wrote target/help-preview.bmp");
     }
 }

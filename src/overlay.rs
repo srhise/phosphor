@@ -24,8 +24,16 @@ pub enum Prompt {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Overlay {
     None,
-    Message { title: String, body: String },
-    Confirm { prompt: Prompt, body: String },
+    Message {
+        title: String,
+        body: String,
+        /// Errors get the red box; ordinary information does not.
+        danger: bool,
+    },
+    Confirm {
+        prompt: Prompt,
+        body: String,
+    },
 }
 
 /// Draw a framed, filled box. Coordinates are the outer rectangle.
@@ -73,9 +81,11 @@ pub fn draw_centered(screen: &mut Screen, title: &str, body: &str, fg: u8, bg: u
         let tx = x + (width.saturating_sub(t.chars().count())) / 2;
         screen.put_str(tx, y, &t, fg, bg);
     }
+    // The block is centred, but every line starts at the same column:
+    // centring each line on its own would scramble aligned columns.
+    let block_x = x + (width.saturating_sub(widest)) / 2;
     for (i, line) in body_lines.iter().enumerate() {
-        let bx = x + (width.saturating_sub(line.chars().count())) / 2;
-        screen.put_str(bx, y + 2 + i, line, fg, bg);
+        screen.put_str(block_x, y + 2 + i, line, fg, bg);
     }
 }
 
