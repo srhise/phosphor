@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build Word.app. macOS application bundles are just a directory with a
+# Build Phosphor.app. macOS application bundles are just a directory with a
 # plist, so we make one directly rather than depend on a packaging tool.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -8,14 +8,14 @@ cd "$(dirname "$0")/.."
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
 VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
-APP="target/Word.app"
+APP="target/Phosphor.app"
 
 echo "==> building release binary"
 cargo build --release
 
 echo "==> rendering icon"
 python3 tools/make-icon.py target/icon.bmp
-ICONSET=target/word.iconset
+ICONSET=target/phosphor.iconset
 rm -rf "$ICONSET"; mkdir -p "$ICONSET"
 sips -s format png target/icon.bmp --out target/icon.png >/dev/null
 for size in 16 32 64 128 256 512 1024; do
@@ -25,26 +25,26 @@ done
 for size in 16 32 128 256 512; do
     cp "$ICONSET/icon_$((size*2))x$((size*2)).png" "$ICONSET/icon_${size}x${size}@2x.png"
 done
-iconutil -c icns "$ICONSET" -o target/word.icns
+iconutil -c icns "$ICONSET" -o target/phosphor.icns
 
 echo "==> assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp target/release/word "$APP/Contents/MacOS/word"
-cp target/word.icns "$APP/Contents/Resources/word.icns"
+cp target/release/phosphor "$APP/Contents/MacOS/phosphor"
+cp target/phosphor.icns "$APP/Contents/Resources/phosphor.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>              <string>Word</string>
-    <key>CFBundleDisplayName</key>       <string>word</string>
-    <key>CFBundleIdentifier</key>        <string>com.craftedup.word</string>
+    <key>CFBundleName</key>              <string>Phosphor</string>
+    <key>CFBundleDisplayName</key>       <string>phosphor</string>
+    <key>CFBundleIdentifier</key>        <string>com.craftedup.phosphor</string>
     <key>CFBundleVersion</key>           <string>$VERSION</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleExecutable</key>        <string>word</string>
-    <key>CFBundleIconFile</key>          <string>word</string>
+    <key>CFBundleExecutable</key>        <string>phosphor</string>
+    <key>CFBundleIconFile</key>          <string>phosphor</string>
     <key>CFBundlePackageType</key>       <string>APPL</string>
     <key>LSMinimumSystemVersion</key>    <string>11.0</string>
     <key>NSHighResolutionCapable</key>   <true/>

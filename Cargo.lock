@@ -1402,6 +1402,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
+name = "phosphor"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "bytemuck",
+ "dirs",
+ "pixels",
+ "rfd",
+ "serde",
+ "tempfile",
+ "toml",
+ "winit",
+]
+
+[[package]]
 name = "pin-project"
 version = "1.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2815,21 +2830,6 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
-
-[[package]]
-name = "word"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "bytemuck",
- "dirs",
- "pixels",
- "rfd",
- "serde",
- "tempfile",
- "toml",
- "winit",
-]
 
 [[package]]
 name = "x11-dl"

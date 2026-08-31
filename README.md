@@ -1,4 +1,4 @@
-# word
+# phosphor
 
 A distraction-free writing app that emulates VGA text mode.
 
@@ -6,6 +6,10 @@ The nostalgia here is architectural, not cosmetic. The app maintains a
 real 80×25 grid of character cells, blits them from the IBM VGA ROM font
 into a 720×400 framebuffer, and passes that through a CRT shader. It is a
 DOS screen because it is built like one.
+
+The name is the coating on the inside of a cathode-ray tube. The
+electron beam excites it and it keeps glowing after the beam has moved
+on, which is why those screens smeared instead of merely displaying.
 
 Inspired by WordPerfect 6.0 for DOS.
 
@@ -26,8 +30,8 @@ Needs a Rust toolchain. Nothing else.
 
 ```sh
 cargo run                 # run it
-cargo test                # 228 tests, all headless
-./tools/package.sh        # build target/Word.app
+cargo test                # 247 tests, all headless
+./tools/package.sh        # build target/Phosphor.app
 ```
 
 ## Menu
@@ -132,7 +136,7 @@ Line endings are the exception: CRLF files stay CRLF files.
 Every 30 seconds a modified document is copied to:
 
 ```
-~/Library/Application Support/word/backup/
+~/Library/Application Support/phosphor/backup/
 ```
 
 This never overwrites your own file — it mirrors WordPerfect's timed
@@ -179,3 +183,7 @@ Design notes are in `docs/superpowers/`.
 
 `assets/fonts/*.bin` are raw character-generator ROM dumps from IBM VGA
 hardware. See `assets/fonts/PROVENANCE.md`.
+
+## License
+
+MIT. See `LICENSE`.

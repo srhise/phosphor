@@ -33,7 +33,7 @@ impl Default for Config {
 }
 
 fn path() -> Option<PathBuf> {
-    dirs::data_dir().map(|d| d.join("word").join("config.toml"))
+    dirs::data_dir().map(|d| d.join("phosphor").join("config.toml"))
 }
 
 pub fn parse(text: &str) -> Config {

@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 
 pub const INTERVAL_MS: u64 = 30_000;
 
-/// `~/Library/Application Support/word/backup`
+/// `~/Library/Application Support/phosphor/backup`
 pub fn dir() -> Option<PathBuf> {
-    dirs::data_dir().map(|d| d.join("word").join("backup"))
+    dirs::data_dir().map(|d| d.join("phosphor").join("backup"))
 }
 
 pub fn path_for_in(dir: &Path, doc: Option<&Path>) -> PathBuf {

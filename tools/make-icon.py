@@ -15,15 +15,16 @@ def glyph_rows(ch):
 
 px = [[BLUE] * SIZE for _ in range(SIZE)]
 
-# "word" plus a block cursor, five cells wide, scaled to fill the icon.
-text = "word"
+# "ph" plus a block cursor, three cells wide, scaled to fill the icon.
+# The full name would be mush at 16x16, so the icon keeps the prompt short.
+text = "ph"
 cells = len(text) + 1
 scale = SIZE * 82 // 100 // (cells * 8)       # leave a margin
 cw, chh = 8 * scale, 16 * scale
 total_w = cells * cw
 
 # Lowercase occupies only the middle rows of a 16-row cell, so centring
-# the cell box leaves the word visibly low. Centre the ink instead.
+# the cell box leaves the letters visibly low. Centre the ink instead.
 ink_rows = [r for ch in text for r, bits in enumerate(glyph_rows(ch)) if bits]
 top, bottom = min(ink_rows), max(ink_rows) + 1
 ink_h = (bottom - top) * scale
