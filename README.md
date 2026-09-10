@@ -24,6 +24,16 @@ Inspired by WordPerfect 6.0 for DOS.
 C:\USERS\SRHISE\DOCUMENTS\CHAPTER-ONE.TXT *   Doc 1   Pg 1   Ln 2"   Pos 6.3"
 ```
 
+## Install
+
+macOS 11+, Apple Silicon and Intel. Download the DMG from the
+[latest release](https://github.com/srhise/phosphor/releases/latest),
+or:
+
+```sh
+brew install --cask srhise/tap/phosphor
+```
+
 ## Build
 
 Needs a Rust toolchain. Nothing else.
@@ -32,6 +42,7 @@ Needs a Rust toolchain. Nothing else.
 cargo run                 # run it
 cargo test                # 247 tests, all headless
 ./tools/package.sh        # build target/Phosphor.app
+./tools/release.sh        # sign, notarize, draft a GitHub release
 ```
 
 ## Menu

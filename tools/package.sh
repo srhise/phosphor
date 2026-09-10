@@ -10,8 +10,12 @@ cd "$(dirname "$0")/.."
 VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
 APP="target/Phosphor.app"
 
-echo "==> building release binary"
-cargo build --release
+# release.sh points this at a universal binary; by default build native.
+BIN=${PHOSPHOR_BIN:-target/release/phosphor}
+if [ "$BIN" = "target/release/phosphor" ]; then
+    echo "==> building release binary"
+    cargo build --release
+fi
 
 echo "==> rendering icon"
 python3 tools/make-icon.py target/icon.bmp
@@ -30,7 +34,7 @@ iconutil -c icns "$ICONSET" -o target/phosphor.icns
 echo "==> assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp target/release/phosphor "$APP/Contents/MacOS/phosphor"
+cp "$BIN" "$APP/Contents/MacOS/phosphor"
 cp target/phosphor.icns "$APP/Contents/Resources/phosphor.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -52,7 +56,17 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "==> signing (ad-hoc, for local use)"
-codesign --force --sign - "$APP"
+# Gatekeeper only accepts apps signed with a Developer ID certificate and
+# the hardened runtime. Use one when present (or given via SIGN_IDENTITY);
+# ad-hoc is fine for a build that never leaves this machine.
+IDENTITY=${SIGN_IDENTITY:-$(security find-identity -v -p codesigning \
+    | awk -F'"' '/Developer ID Application/ {print $2; exit}')}
+if [ -n "$IDENTITY" ]; then
+    echo "==> signing ($IDENTITY)"
+    codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+else
+    echo "==> signing (ad-hoc, for local use)"
+    codesign --force --sign - "$APP"
+fi
 
 echo "built $APP"

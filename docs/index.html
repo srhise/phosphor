@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>phosphor</title>
+<meta name="description" content="A distraction-free writing app for macOS that emulates VGA text mode. A real 80×25 character grid, the IBM ROM font, a CRT shader, plain text files.">
+<meta property="og:title" content="phosphor">
+<meta property="og:description" content="A writing app that is a DOS screen because it is built like one.">
+<meta property="og:image" content="https://srhise.github.io/phosphor/screenshot.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+  @font-face {
+    font-family: "IBM VGA";
+    src: url("fonts/WebPlus_IBM_VGA_8x16.woff") format("woff");
+    font-display: swap;
+  }
+
+  :root {
+    --blue:   #0000a8;  /* VGA color 1 */
+    --white:  #ffffff;  /* VGA color 15 */
+    --gray:   #a8a8a8;  /* VGA color 7 */
+    --yellow: #fcfc54;  /* VGA color 14 */
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { background: var(--blue); }
+
+  body {
+    background: var(--blue);
+    color: var(--white);
+    font-family: "IBM VGA", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 16px;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 3rem 16px 0;
+  }
+
+  main { width: 100%; max-width: 80ch; }
+
+  a { color: var(--white); }
+  a:hover { background: var(--white); color: var(--blue); text-decoration: none; }
+
+  pre {
+    font-family: inherit;
+    line-height: 1;  /* box-drawing glyphs only connect at exactly one cell */
+    overflow-x: auto;
+    max-width: 100%;
+  }
+
+  /* The startup box, after WordPerfect's own copyright screen. */
+  .startup { text-align: center; margin-bottom: 3rem; }
+  .startup pre { display: inline-block; text-align: center; }
+  .startup .tagline { color: var(--gray); margin-top: 1rem; }
+
+  .cursor {
+    display: inline-block;
+    width: 1ch;
+    background: var(--white);
+    animation: blink 0.83s steps(1) infinite;
+  }
+  @keyframes blink { 50% { background: transparent; } }
+  @media (prefers-reduced-motion: reduce) {
+    .cursor { animation: none; }
+  }
+
+  /* The screen itself, at 1:1 pixels where the viewport allows. */
+  .screen {
+    margin: 0 auto 3rem;
+    width: min(720px, 100%);
+  }
+  .screen img {
+    display: block;
+    width: 100%;
+    image-rendering: pixelated;
+    border: 4px solid #000;
+  }
+  .screen figcaption { color: var(--gray); margin-top: .5rem; }
+
+  /* Download actions: menu items, reverse-video on hover. */
+  .get { margin-bottom: 3rem; }
+  .get a.dl {
+    display: inline-block;
+    color: var(--yellow);
+    text-decoration: none;
+    padding: .25rem 0;
+  }
+  .get a.dl:hover { background: var(--yellow); color: var(--blue); }
+  .get .brew { color: var(--gray); margin-top: .75rem; }
+  .get .brew code { color: var(--white); }
+  .get .fine { color: var(--gray); margin-top: .75rem; }
+
+  section h2 {
+    font-size: 1em;
+    font-weight: normal;
+    color: var(--yellow);
+    margin-bottom: .75rem;
+  }
+  section { margin-bottom: 2.5rem; }
+  section p { max-width: 65ch; margin-bottom: 1rem; }
+  section p:last-child { margin-bottom: 0; }
+  section .aside { color: var(--gray); }
+
+  /* The status line, at the bottom where it belongs. */
+  footer {
+    margin-top: auto;
+    width: 100%;
+    text-align: center;
+  }
+  footer .links { margin-bottom: 1.5rem; color: var(--gray); }
+  footer .statusline {
+    background: var(--blue);
+    color: var(--white);
+    max-width: 80ch;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    gap: 2ch;
+    padding: .25rem 0 .75rem;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+</style>
+</head>
+<body>
+<main>
+
+  <header class="startup">
+<pre>
+╔═══════════════════════════════════════╗
+║                                       ║
+║            P H O S P H O R            ║
+║                                       ║
+║      WordPerfect is a place, and      ║
+║       this is a way back to it        ║
+║                                       ║
+╚═══════════════════════════════════════╝
+</pre>
+    <p class="tagline">A distraction-free writer that emulates VGA text mode.<span class="cursor">&nbsp;</span></p>
+  </header>
+
+  <figure class="screen">
+    <img src="screenshot.png" width="720" height="400"
+      alt="phosphor: white text on a blue 80-column screen, a WordPerfect-style status line along the bottom">
+    <figcaption>The framebuffer, before the CRT shader gets to smear it.</figcaption>
+  </figure>
+
+  <section class="get">
+    <h2>Get it</h2>
+    <a class="dl" href="https://github.com/srhise/phosphor/releases/latest">▸ Download for macOS</a>
+    <p class="brew">or <code>brew install --cask srhise/tap/phosphor</code></p>
+    <p class="fine">macOS 11+, Apple Silicon and Intel. Free, MIT-licensed,
+    <a href="https://github.com/srhise/phosphor">source on GitHub</a>.</p>
+  </section>
+
+  <section>
+    <h2>The nostalgia is architectural, not cosmetic</h2>
+    <p>The app maintains a real 80×25 grid of character cells, blits them
+    from the IBM VGA ROM font into a 720×400 framebuffer, and passes that
+    through a CRT shader. It is a DOS screen because it is built like
+    one.</p>
+    <p>That constraint is the feature. One document, one screen, no chrome,
+    no formatting to fiddle with. Text wraps at 65 columns: a 6.5″ line at
+    10 characters per inch, which is an 8.5″ page with 1″ margins, which is
+    what the position readout in the status line is measuring.</p>
+  </section>
+
+  <section>
+    <h2>Your files stay yours</h2>
+    <p>Plain UTF-8 <code>.txt</code>, anywhere on disk. No proprietary
+    format, no library folder, nothing to export from. Saves are atomic,
+    and every 30 seconds a modified document is copied to a timed backup
+    that never touches your own file. If a backup outlives its document,
+    the next launch offers to recover it.</p>
+  </section>
+
+  <section>
+    <h2>The keys teach themselves</h2>
+    <p><code>Esc</code> drops the menu bar; every item shows its shortcut
+    on the right, so the menu teaches the keys and then you stop needing
+    it. <code>Cmd-S</code>, <code>Cmd-Z</code>, and the rest work the way
+    your hands expect. <code>F3</code> toggles the CRT, <code>F6</code>
+    counts words, <code>F7</code> exits, the way it always did.</p>
+    <p class="aside">The name is the coating on the inside of a cathode-ray
+    tube. The electron beam excites it and it keeps glowing after the beam
+    has moved on, which is why those screens smeared instead of merely
+    displaying.</p>
+  </section>
+
+</main>
+
+<footer>
+  <p class="links">
+    <a href="https://github.com/srhise/phosphor">GitHub</a> │
+    <a href="https://github.com/srhise/phosphor/blob/main/LICENSE">MIT license</a> │
+    web font: <a href="https://int10h.org/oldschool-pc-fonts/">The Ultimate
+    Oldschool PC Font Pack</a> (CC BY-SA 4.0)
+  </p>
+  <p class="statusline">
+    <span>C:\SRHISE\PHOSPHOR\INDEX.HTM</span>
+    <span>Doc 1   Pg 1   Ln 1"   Pos 1"</span>
+  </p>
+</footer>
+</body>
+</html>
